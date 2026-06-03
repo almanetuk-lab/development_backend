@@ -1,0 +1,44 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@pinecone-database/pinecone": "^7.2.0",
+    "@supabase/supabase-js": "^2.78.0",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
+    "body-parser": "^2.2.1",
+    "cloudinary": "^1.41.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-session": "^1.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "node-mailjet": "^6.0.11",
+    "nodemailer": "^7.0.9",
+    "pg": "^8.16.3",
+    "resend": "^6.5.0",
+    "sib-api-v3-sdk": "^8.5.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "stripe": "^20.0.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
+  "description": ""
+}
