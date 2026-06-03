@@ -70,7 +70,7 @@ app.use(express.urlencoded({ extended: true }));
 //app.use("/uploads", express.static("uploads"));
 
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://intentionalconnections.app', 'https://frontend1-7fsg.onrender.com/'],
+    origin: ['http://localhost:5173', 'https://intentionalconnections.app', 'https://frontend1-7fsg.onrender.com/', 'https://intentional-connection.onrender.com'],
     credentials: true
 }));
 
@@ -131,6 +131,11 @@ export const sendNotification = async (userId, title, message,) => {
     console.error(" Error sending notification:", err);
   }
 };
+
+//  Root endpoint health check
+app.get("/", (req, res) => {
+  res.json({ status: "healthy", message: "Intentional Connection API is running!" });
+});
 
 //  Existing routes — unchanged
 app.use("/", authRoutes);
