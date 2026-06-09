@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import { sendNotification } from "../server.js";
 import { sendEmail } from "../services/sendEmail.js";
+import { upsertUserVector } from "../services/pineconeService.js";
 //import { sendEmail } from "../emailService.js";
 
 dotenv.config();
@@ -230,6 +231,20 @@ export const registerUser = async (req, res) => {
     console.log("==================================================");
     console.log("✅ Registration Profile SUCCESS. DB SAVE SUCCESS: true. intent_tags:", profileResult.rows[0].intent_tags, "contextual_tags:", profileResult.rows[0].contextual_tags, "confidence_score:", profileResult.rows[0].confidence_score);
     console.log("==================================================");
+
+    // 🌲 Pinecone Integration: Dual Storage sync during registration
+    if (intent_embedding) {
+      try {
+        console.log(`🌲 [Pinecone] Syncing initial vector for user ${user_id} during registration...`);
+        await upsertUserVector(user_id, intent_embedding, {
+          profession,
+          city: null, // city is not set during initial registration
+          intent_tags
+        });
+      } catch (pineconeErr) {
+        console.error("❌ [Pinecone] Registration sync failed (non-blocking):", pineconeErr.message);
+      }
+    }
 
     const user = {
       email: result.rows[0].email,

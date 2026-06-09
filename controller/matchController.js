@@ -3,6 +3,7 @@ import { generateAICompatibility, extractIntentTags, enrichContextualMetadata, v
 import { buildSemanticProfileText, generateEmbedding } from "../services/embeddingService.js";
 import { extractProfessionalEntities } from "../services/entityRecognitionService.js";
 import { isSentimentAuditEnabled } from "../config/sentimentConfig.js";
+import { searchSimilarProfiles } from "../services/pineconeService.js";
 import {
   analyzeSentimentAndTone,
   isDistressTone,
@@ -545,43 +546,105 @@ export const getSuggestions = async (req, res) => {
       console.warn("⚠️ Refinement session lookup failed (non-fatal):", sessionErr.message);
     }
 
-    // 2. Cosine Similarity Search using <=> operator
-    const matchQuery = `
-      SELECT
-          id,
-          user_id,
-          first_name,
-          last_name,
-          profession,
-          about_me,
-          intent_tags,
-          contextual_tags,
-          normalized_entities,
-          COALESCE(sentiment_audit, '{}'::jsonb) AS sentiment_audit,
-          spider_graph_data,
-          image_url,
-          city,
-          confidence_score,
-          intent_embedding <=> $1 AS distance
-      FROM profiles
-      WHERE
-          user_id != $2
-          AND intent_embedding IS NOT NULL
-          AND (intent_embedding <=> $1) < 0.30
-      ORDER BY distance ASC
-      LIMIT 25;
-    `;
+    // Parse search vector to array of numbers for Pinecone
+    let parsedSearchVector = null;
+    if (searchVector) {
+      if (typeof searchVector === "string") {
+        parsedSearchVector = searchVector.replace(/[\[\]]/g, "").split(",").map(Number);
+      } else if (Array.isArray(searchVector)) {
+        parsedSearchVector = searchVector;
+      }
+    }
 
-    const matchResult = await pool.query(matchQuery, [searchVector, userId]);
-    const matches = matchResult.rows;
+    let matches = [];
+    let pineconeSuccess = false;
+    let pineconeScoresMap = {}; // userId -> similarity score
 
-    console.log("MATCHES FOUND:", matches.length);
+    // Fetch current user's profile for compatibility calculations
+    const currentUserProfile = await fetchFullProfile(userId);
 
-    // 3. Format response with dynamic scores
+    // Try to search via Pinecone
+    if (currentUserProfile && parsedSearchVector) {
+      try {
+        console.log(`🌲 [Pinecone] Executing similarity query for user ${userId}...`);
+        const pineconeResults = await searchSimilarProfiles(parsedSearchVector, 50);
+
+        if (pineconeResults && pineconeResults.length > 0) {
+          // Filter out current user
+          const filteredMatches = pineconeResults.filter(m => String(m.id) !== String(userId));
+          const matchedUserIds = filteredMatches.map(m => Number(m.id));
+
+          if (matchedUserIds.length > 0) {
+            filteredMatches.forEach(m => {
+              pineconeScoresMap[String(m.id)] = m.score !== undefined && m.score !== null ? m.score : 0.70;
+            });
+
+            // Fetch details from PostgreSQL
+            const fetchQuery = `
+              SELECT * FROM profiles
+              WHERE user_id = ANY($1::int[]);
+            `;
+            const fetchResult = await pool.query(fetchQuery, [matchedUserIds]);
+            matches = fetchResult.rows;
+            pineconeSuccess = true;
+            console.log(`🌲 [Pinecone] Similarity search fetched ${matches.length} profiles from DB.`);
+          }
+        }
+      } catch (pineconeErr) {
+        console.error("❌ [Pinecone] Search failed, falling back to pgvector (Supabase):", pineconeErr.message);
+      }
+    }
+
+    // Fallback to pgvector if Pinecone is not configured or failed/returned nothing
+    if (!pineconeSuccess) {
+      console.log("🐘 Falling back to Supabase pgvector search...");
+      const matchQuery = `
+        SELECT
+            *,
+            intent_embedding <=> $1 AS distance
+        FROM profiles
+        WHERE
+            user_id != $2
+            AND intent_embedding IS NOT NULL
+            AND (intent_embedding <=> $1) < 0.30
+        ORDER BY distance ASC
+        LIMIT 25;
+      `;
+      const matchResult = await pool.query(matchQuery, [searchVector, userId]);
+      matches = matchResult.rows;
+
+      // Populate pineconeScoresMap using distance fallback: similarity = 1 - distance
+      matches.forEach(row => {
+        const distanceVal = Number(row.distance);
+        pineconeScoresMap[String(row.user_id)] = 1 - distanceVal;
+      });
+    }
+
+    // Populate prompts for all matches to ensure calculateLocalCompatibilityScores works correctly
+    if (matches.length > 0) {
+      const matchProfileIds = matches.map(row => row.id);
+      try {
+        const promptsResult = await pool.query(
+          `SELECT profile_id, question_key, answer FROM profile_prompts WHERE profile_id = ANY($1::int[])`,
+          [matchProfileIds]
+        );
+        const promptsMap = {};
+        for (const prow of promptsResult.rows) {
+          if (!promptsMap[prow.profile_id]) {
+            promptsMap[prow.profile_id] = {};
+          }
+          promptsMap[prow.profile_id][prow.question_key] = prow.answer;
+        }
+        matches.forEach(row => {
+          row.prompts = promptsMap[row.id] || {};
+        });
+      } catch (promptErr) {
+        console.error("❌ [Suggestions] Failed to bulk fetch prompts (non-fatal):", promptErr.message);
+      }
+    }
+
+    // 3. Format response with dynamic scores and hybrid ranking
     const responseData = matches.map((row) => {
-      const distanceVal = Number(row.distance);
-      const compatibility_score = Math.round((1 - distanceVal) * 100);
-
       let parsedTags = {};
       if (row.intent_tags) {
         if (typeof row.intent_tags === "string") {
@@ -610,21 +673,70 @@ export const getSuggestions = async (req, res) => {
         }
       }
 
-      // Compute composite clarity: blend Gemini confidence_score with field-completion signals
+      // Compute composite clarity
       const rawConf = parseFloat(row.confidence_score) || 0;
-      const hasEmbedding = true; // only profiles with intent_embedding reach this point
       const hasIntentTags = Object.keys(parsedTags).length > 0;
       const hasSentiment = candidateSentiment && candidateSentiment.primary_tone;
       const hasContextual = parsedContextualTags && Object.keys(parsedContextualTags).length > 0;
       const hasAboutMe = (row.about_me || "").trim().length > 20;
-      // Bonus: +0.05 for each completed AI field beyond just confidence
+      
       const completionBonus =
         (hasIntentTags ? 0.08 : 0) +
         (hasSentiment ? 0.07 : 0) +
         (hasContextual ? 0.05 : 0) +
         (hasAboutMe ? 0.05 : 0);
-      // compositeClarity: Gemini score (80%) + field completion bonus (20%)
+      
       const compositeClarity = Math.min(1, (rawConf > 0 ? rawConf * 0.80 : 0.40) + completionBonus);
+
+      // --- HYBRID RANKING COMPUTATION ---
+      // Get the Pinecone similarity score (0 to 100)
+      const pineconeSimilarity = Math.round((pineconeScoresMap[String(row.user_id)] || 0.70) * 100);
+
+      let compMatrix = 70;
+      let sentimentScore = 70;
+      let lifestyleScore = 65;
+
+      const safeParseJson = (field) => {
+        if (!field) return null;
+        if (typeof field === "object" && !Array.isArray(field)) return field;
+        if (typeof field === "string") {
+          try { return JSON.parse(field); } catch { return null; }
+        }
+        return null;
+      };
+
+      if (currentUserProfile) {
+        try {
+          const candidateProfileFormatted = {
+            ...row,
+            intent_tags_parsed: validateAndNormalize(parsedTags),
+            contextual_tags_parsed: validateAndNormalizeContextual(parsedContextualTags),
+            life_rhythms_parsed: safeParseJson(row.life_rhythms),
+            ways_i_spend_time_parsed: safeParseJson(row.ways_i_spend_time),
+            skills_parsed: safeParseJson(row.skills),
+            interests_parsed: safeParseJson(row.interests),
+            hobbies_parsed: safeParseJson(row.hobbies),
+            normalized_entities_parsed: safeParseJson(row.normalized_entities),
+            sentiment_audit_parsed: candidateSentiment,
+          };
+
+          const localScores = calculateLocalCompatibilityScores(currentUserProfile, candidateProfileFormatted);
+          
+          compMatrix = localScores?.relationship_expectations ?? 70;
+          sentimentScore = localScores?.emotional_tone_match ?? 70;
+          lifestyleScore = localScores?.lifestyle_rhythm ?? 65;
+        } catch (scoreErr) {
+          console.error(`❌ Error calculating hybrid ranking components for user ${row.user_id}:`, scoreErr.message);
+        }
+      }
+
+      // Final Match Score = 40% Pinecone Similarity + 35% Compatibility Matrix + 15% Sentiment Score + 10% Lifestyle Match
+      const finalMatchScore = Math.round(
+        (0.40 * pineconeSimilarity) +
+        (0.35 * compMatrix) +
+        (0.15 * sentimentScore) +
+        (0.10 * lifestyleScore)
+      );
 
       return {
         id: row.id,
@@ -634,25 +746,25 @@ export const getSuggestions = async (req, res) => {
         about_me: row.about_me || "",
         image_url: row.image_url || "",
         city: row.city || "Location not set",
-        distance: Number(distanceVal.toFixed(4)),
-        compatibility_score,
+        distance: Number(((100 - pineconeSimilarity) / 100).toFixed(4)),
+        compatibility_score: finalMatchScore,
         intent_tags: parsedTags,
         contextual_tags: parsedContextualTags,
         spider_graph_data: row.spider_graph_data || null,
         confidence_score: parseFloat(compositeClarity.toFixed(2)),
         // Sentiment data from candidate profile (used for boost logic below)
         _candidate_sentiment: candidateSentiment,
-        // Include vector_similarity as a local score dimension for re-scoring
         local_scores: {
-          vector_similarity: compatibility_score,
+          vector_similarity: pineconeSimilarity,
+          relationship_expectations: compMatrix,
+          emotional_tone_match: sentimentScore,
+          lifestyle_rhythm: lifestyleScore,
+          hybrid_score: finalMatchScore
         },
       };
     });
 
     // ── Sentiment-Aware Re-Ranking ────────────────────────────────────────
-    // If the current user has a distress tone, boost candidates who are
-    // emotionally resilient, calm, or low-friction to the top of results.
-    // Adds a sentiment_match_explanation to each boosted match.
     let currentUserSentiment = null;
     if (isSentimentAuditEnabled()) {
       try {
@@ -669,12 +781,10 @@ export const getSuggestions = async (req, res) => {
           currentUserSentiment = {
             primary_tone:         parsedAudit?.primary_tone || null,
             emotional_resilience: parsedAudit?.emotional_resilience || null,
-            // Parse full audit if needed for future features
             audit: parsedAudit,
           };
         }
       } catch (sentimentErr) {
-        // Non-fatal: sentiment boost is an enhancement, not a blocker
         console.warn("⚠️ Sentiment-aware re-rank: failed to fetch user sentiment (non-fatal):", sentimentErr.message);
       }
     }
@@ -714,7 +824,6 @@ export const getSuggestions = async (req, res) => {
         }
       }
 
-      // Audit log: boost applied
       if (sentiment_boost_score > 0) {
         console.log(`   ⚡ Sentiment boost +${sentiment_boost_score} applied to candidate user_id=${match.user_id}`);
       }
@@ -723,7 +832,6 @@ export const getSuggestions = async (req, res) => {
       return {
         ...cleanMatch,
         sentiment_boost_score,
-        // Only expose the explanation snippet when a boost is applied
         sentiment_match_explanation: sentiment_boost_score > 0 ? explanation : null,
       };
     });
@@ -739,8 +847,8 @@ export const getSuggestions = async (req, res) => {
       console.log(`🧠 SENTIMENT_AWARE_RANKING: User tone=${currentTone}. Applied emotional safety boosting to ${sortedData.filter(m => m.sentiment_boost_score > 0).length} candidates.`);
     }
 
-    // ── Point #7: Apply adaptive re-scoring if session active ────────
-    let finalData = sortedData;  // already sentiment-sorted above
+    // ── Apply adaptive re-scoring if session active ────────
+    let finalData = sortedData;
     let refinementMeta = null;
 
     if (activeSession && adaptiveWeights) {
@@ -766,7 +874,6 @@ export const getSuggestions = async (req, res) => {
       }
     }
 
-    // Return with refinement metadata if active
     if (refinementMeta) {
       return res.status(200).json({
         suggestions: finalData,

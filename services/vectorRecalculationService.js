@@ -31,6 +31,7 @@ import { extractProfessionalEntities } from "./entityRecognitionService.js";
 import { analyzeSentimentAndTone }     from "./sentimentAuditService.js";
 import { isSentimentAuditEnabled }     from "../config/sentimentConfig.js";
 import { generateSpiderGraphData }     from "./spiderGraphService.js";
+import { upsertUserVector } from "./pineconeService.js";
 
 // ── Deduplication Guard ──────────────────────────────────────────────────────
 // Stores the user IDs that are currently mid-recalculation.
@@ -417,6 +418,20 @@ export const recalculateUserVector = async (
     ];
 
     const updateResult = await pool.query(updateQuery, updateValues);
+
+    // 🌲 Pinecone Integration: Dual Storage sync during vector recalculation
+    if (intent_embedding) {
+      try {
+        console.log(`🌲 [Pinecone] Syncing recalculated vector for user ${userId}...`);
+        await upsertUserVector(userId, intent_embedding, {
+          profession: profileData.profession,
+          city: profileData.city,
+          intent_tags: intent_tags
+        });
+      } catch (pineconeErr) {
+        console.error("❌ [Pinecone] Vector recalculation sync failed (non-blocking):", pineconeErr.message);
+      }
+    }
 
     if (!updateResult.rows.length) {
       console.error(`❌ [VectorRecalc] DB UPDATE returned no rows for user ${uid}`);

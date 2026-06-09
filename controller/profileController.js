@@ -12,6 +12,7 @@ import {
   hasRecalculatableData,
 } from "../services/vectorRecalculationService.js";
 import { generateSpiderGraphData } from "../services/spiderGraphService.js";
+import { upsertUserVector } from "../services/pineconeService.js";
 
 // 🟢 Update Profile 
 export const updateProfile = async (req, res) => {
@@ -433,6 +434,20 @@ export const updateProfile = async (req, res) => {
     console.log("=========================================");
 
     const profileResult = await pool.query(updateProfileQuery, profileValues);
+
+    // 🌲 Pinecone Integration: Dual Storage sync during profile update
+    if (intent_embedding) {
+      try {
+        console.log(`🌲 [Pinecone] Syncing updated vector for user ${userId} during profile update...`);
+        await upsertUserVector(userId, intent_embedding, {
+          profession,
+          city,
+          intent_tags
+        });
+      } catch (pineconeErr) {
+        console.error("❌ [Pinecone] Profile update sync failed (non-blocking):", pineconeErr.message);
+      }
+    }
 
     // Invalidate compatibility cache for this updated profile
     console.log(`🧬 Profile updated. Invalidating compatibility cache for user ID ${userId}...`);
