@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+logs/
+cache/
+build/
+uploads/
+scratch/
+scratch_test.js
+test_db.js
+test_update.js
+backfill_spider.js
+backfill_spider_real.js
