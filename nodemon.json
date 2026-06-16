@@ -1,0 +1,8 @@
+{
+  "watch": [".", ".env"],
+  "ext": "js,json,env",
+  "ignore": ["node_modules", "scratch"],
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
