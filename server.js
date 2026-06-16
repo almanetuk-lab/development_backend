@@ -7,6 +7,10 @@ import { Server } from "socket.io";
 import { pool } from "./config/db.js"; // ✅ Use your existing DB connection
 import bodyParser from 'body-parser';
 
+// ✅ Dynamic environment config — all origins/URLs loaded from .env
+// To add a new frontend origin: update CORS_ALLOWED_ORIGINS in your .env
+import { corsOrigins, socketCorsOrigins, port, logEnvSummary } from "./config/env.js";
+
 // ✅ Import routes
 import authRoutes from "./routes/authRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
@@ -69,8 +73,11 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from "uploads" directory
 //app.use("/uploads", express.static("uploads"));
 
+// ✅ CORS origins are loaded dynamically from CORS_ALLOWED_ORIGINS env variable.
+// To allow a new domain: add it to CORS_ALLOWED_ORIGINS in your .env — no code change needed.
+// Example: CORS_ALLOWED_ORIGINS=http://localhost:5173,https://app.example.com
 app.use(cors({
-    origin: ['http://localhost:5173', 'https://intentionalconnections.app', 'https://frontend1-7fsg.onrender.com/'],
+    origin: corsOrigins,
     credentials: true
 }));
 
@@ -78,13 +85,14 @@ app.use(cors({
 
 //  Create HTTP + Socket.IO server
 const server = http.createServer(app);
+// ✅ Socket.IO uses the same allowed origins as Express CORS (from CORS_ALLOWED_ORIGINS env var).
 const io = new Server(server, {
   cors: {
-    origin:"*", 
+    origin: socketCorsOrigins,
     methods: ["GET", "POST"],
     credentials: true,
   },
-   transports: ["websocket", "polling"],
+  transports: ["websocket", "polling"],
 });
   console.log("✅ Socket connected");
 //  Track online users (userId → socketId)
@@ -180,9 +188,14 @@ app.use("/api/admin/users/handle",adminReportRoutes);
 app.use('/api/linkedin', linkedinRoutes);
 
 
-//app.use(express.urlencoded({ extended: true })); 
-const port = process.env.PORT || 3435;
-server.listen(port, () => console.log(`🚀 Server running on localhost:${port}`));
+//app.use(express.urlencoded({ extended: true }));
+
+// ✅ Port is loaded from process.env.PORT (set by Render, Railway, Heroku, etc.)
+// or falls back to the PORT value in your .env file.
+logEnvSummary();
+server.listen(port, () =>
+  console.log(`🚀 Server running on port ${port} | ENV: ${process.env.NODE_ENV || 'development'}`)
+);
 
 export { app, io, onlineUsers };
 

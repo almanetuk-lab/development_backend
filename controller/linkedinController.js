@@ -8,9 +8,15 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// ✅ SSL is configured dynamically based on the DATABASE_URL.
+// Local connections (localhost / 127.0.0.1) run without SSL.
+// Cloud connections (Supabase, Render Postgres, Railway, etc.) use SSL automatically.
+// To override, set NODE_ENV=development in your .env for local development.
+const _dbUrl = process.env.DATABASE_URL || '';
+const _isLocalDb = _dbUrl.includes('localhost') || _dbUrl.includes('127.0.0.1');
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    connectionString: _dbUrl,
+    ssl: _isLocalDb ? false : { rejectUnauthorized: false },
 });
 
 class LinkedInAuthController {
