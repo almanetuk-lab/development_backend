@@ -334,6 +334,7 @@ import {
 } from "../config/db.js";
 import cloudinary from "../config/cloudinaryConfig.js";
 import { createNotification } from "./notificationController.js";
+import { trackMessageActivity } from "../services/trustService.js";
 
 dotenv.config();
 
@@ -551,6 +552,10 @@ export const getAllMessages = async (req, res) => {
     );
 
     const savedMessage = rows[0];
+
+    // Module 8 — Track message activity for trust points (non-blocking)
+    trackMessageActivity(sender_id, receiver_id).catch(() => {});
+
     /* ⭐ SHRADDHA NEW CODE START — INCREMENT MESSAGE COUNT */
     // ➕ INCREMENT MESSAGE COUNT (ONLY LIMITED PLANS)
     const queryToGetSenderName = `SELECT first_name,last_name FROM profiles WHERE user_id = $1`;

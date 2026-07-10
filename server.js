@@ -47,6 +47,8 @@ import adminReportRoutes from "./routes/adminreportRoutes.js";
 import linkedinRoutes from './routes/linkedinRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
 import healthRoutes from "./routes/healthRoutes.js";
+import digitalTwinRoutes from "./routes/digitalTwinRoutes.js";
+import handshakeRoutes from "./routes/handshakeRoutes.js";
 import { verifySentimentSchema } from "./utils/schemaValidator.js";
 dotenv.config();
 
@@ -146,6 +148,8 @@ app.use("/", matchRoutes);
 
 app.use("/api/notifications",notificationRoutes); // new route for fetching notifications
 app.use("/api/health", healthRoutes);
+app.use("/api/twin", digitalTwinRoutes); // Digital Twin route
+app.use("/api/handshake", handshakeRoutes); // Structural Handshake Protocol route
 
 
 // Payment routes 

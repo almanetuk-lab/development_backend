@@ -13,6 +13,7 @@ import {
 } from "../services/vectorRecalculationService.js";
 import { generateSpiderGraphData } from "../services/spiderGraphService.js";
 import { upsertUserVector } from "../services/pineconeService.js";
+import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 
 // 🟢 Update Profile 
 export const updateProfile = async (req, res) => {
@@ -109,6 +110,7 @@ export const updateProfile = async (req, res) => {
     // --- DEEP LOGGING INITIATED ---
     console.log("==================================================");
     console.log("🛠️  PROFILE UPDATE PIPELINE INITIATED");
+    console.log("[DEBUG] Profile Update Started");
     console.log("USER ID (from token):", userId);
     console.log("ABOUT ME RECEIVED:", about_me);
     console.log("==================================================");
@@ -466,6 +468,26 @@ export const updateProfile = async (req, res) => {
       console.log("SAVED INTENT TAGS:", profileResult.rows[0].intent_tags ? "Present" : "Null");
       console.log("SAVED CONFIDENCE SCORE:", profileResult.rows[0].confidence_score);
       console.log("DB SAVE SUCCESS: true");
+
+      // 🧠 Trigger Digital Twin Generation Asynchronously
+      console.log("[DEBUG] Twin Data Check Started");
+      const hasTwinData = about_me || life_rhythms || prompts || profession || relationship_goal || intent_tags || contextual_tags || normalized_entities || sentiment_audit;
+      console.log("[DEBUG] hasTwinData Result:", Boolean(hasTwinData), { about_me: !!about_me, life_rhythms: !!life_rhythms, prompts: !!prompts, profession: !!profession, relationship_goal: !!relationship_goal });
+      
+      if (hasTwinData) {
+        console.log(`[DEBUG] Triggering Digital Twin Generation`);
+        console.log(`[DEBUG] User ID: ${userId}`);
+        console.log(`[DEBUG] Profile Data Received:`, JSON.stringify({ about_me, profession, relationship_goal }));
+        
+        generateOrUpdateTwin(userId, profileResult.rows[0], {
+          intent_tags: intent_tags || profileResult.rows[0].intent_tags,
+          contextual_tags: contextual_tags || profileResult.rows[0].contextual_tags,
+          normalized_entities: normalized_entities || profileResult.rows[0].normalized_entities,
+          sentiment_audit: sentiment_audit || profileResult.rows[0].sentiment_audit,
+          spider_graph_data: spider_graph_data || profileResult.rows[0].spider_graph_data,
+          prompts: prompts
+        }).catch(err => console.error("❌ Asynchronous Twin generation failed:", err));
+      }
     } else {
       console.log("❌ PROFILE UPDATE FAILED: No row returned");
     }
@@ -513,6 +535,8 @@ export const updateProfile = async (req, res) => {
         return acc;
       }, {}),
     };
+
+    console.log("[DEBUG] Profile Update Completed");
 
     return res.status(200).json({
       message: "Profile and email updated successfully",
