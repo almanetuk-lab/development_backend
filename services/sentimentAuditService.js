@@ -27,9 +27,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 // re-ranking engine (queryRefinementService). They are defined here as the
 // single source of truth so future tuning only requires one change.
 export const SENTIMENT_WEIGHTS = {
-  emotional_tone_match:       0.12, // 12% — primary tone alignment dimension
+  emotional_tone_match: 0.12, // 12% — primary tone alignment dimension
   emotional_resilience_bonus: 0.08, // 8%  — bonus for high-resilience partner match
-  low_friction_bonus:         0.06, // 6%  — bonus for low-friction lifestyle match
+  low_friction_bonus: 0.06, // 6%  — bonus for low-friction lifestyle match
 };
 
 // ── Allowed Values per Field ──────────────────────────────────────────────────
@@ -185,25 +185,25 @@ export const EXPLANATION_SNIPPETS = {
 // Returned when Gemini fails, input is empty, or parse fails.
 // Never null — always a valid object so existing flows are never blocked.
 export const DEFAULT_SENTIMENT_AUDIT = {
-  primary_tone:           "Balanced",
-  stress_level:           "Moderate",
-  emotional_resilience:   "Moderate",
-  lifestyle_friction:     "Moderate",
-  distress_indicator:     false,
-  confidence_score:       0.50,
-  analysis_summary:       "Baseline emotional stability and balanced lifestyle pace.",
-  audit_timestamp:        new Date().toISOString(),
-  communication_style:    "Moderate",
+  primary_tone: "Balanced",
+  stress_level: "Moderate",
+  emotional_resilience: "Moderate",
+  lifestyle_friction: "Moderate",
+  distress_indicator: false,
+  confidence_score: 0.50,
+  analysis_summary: "Baseline emotional stability and balanced lifestyle pace.",
+  audit_timestamp: new Date().toISOString(),
+  communication_style: "Moderate",
   conflict_resolution_style: "Collaborative",
-  
+
   // Backward compatibility fields
-  emotional_energy:       "Moderate",
-  social_capacity:        "Moderate",
-  relationship_need:      "Deep Connection",
-  stress_recovery_style:  "Routine & Structure",
+  emotional_energy: "Moderate",
+  social_capacity: "Moderate",
+  relationship_need: "Deep Connection",
+  stress_recovery_style: "Routine & Structure",
   recommended_partner_traits: [],
-  burnout_signals:        [],
-  is_default:             true,
+  burnout_signals: [],
+  is_default: true,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -220,7 +220,7 @@ const extractJsonFromText = (text) => {
     .replace(/```/g, "")
     .trim();
   const start = cleaned.indexOf("{");
-  const end   = cleaned.lastIndexOf("}");
+  const end = cleaned.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) return null;
   return cleaned.slice(start, end + 1);
 };
@@ -407,16 +407,16 @@ const buildSentimentProfileText = (profileOrText, prompts = null) => {
     catch { return null; }
   })();
   if (lr) {
-    if (lr.emotional_style)       parts.push(`Emotional Style: ${lr.emotional_style}`);
-    if (lr.social_energy)         parts.push(`Social Energy: ${lr.social_energy}`);
-    if (lr.life_pace)             parts.push(`Life Pace: ${lr.life_pace}`);
-    if (lr.work_rhythm)           parts.push(`Work Rhythm: ${lr.work_rhythm}`);
-    if (lr.communication_rhythm)  parts.push(`Communication Rhythm: ${lr.communication_rhythm}`);
+    if (lr.emotional_style) parts.push(`Emotional Style: ${lr.emotional_style}`);
+    if (lr.social_energy) parts.push(`Social Energy: ${lr.social_energy}`);
+    if (lr.life_pace) parts.push(`Life Pace: ${lr.life_pace}`);
+    if (lr.work_rhythm) parts.push(`Work Rhythm: ${lr.work_rhythm}`);
+    if (lr.communication_rhythm) parts.push(`Communication Rhythm: ${lr.communication_rhythm}`);
   }
 
   // Lifestyle preferences
-  if (p.freetime_style)           parts.push(`Freetime: ${p.freetime_style}`);
-  if (p.health_activity_level)    parts.push(`Health Activity: ${p.health_activity_level}`);
+  if (p.freetime_style) parts.push(`Freetime: ${p.freetime_style}`);
+  if (p.health_activity_level) parts.push(`Health Activity: ${p.health_activity_level}`);
 
   // Q&A prompts (onboarding answers — rich source for tone signals)
   const activePrompts = prompts || p.prompts;
@@ -574,9 +574,9 @@ Return EXACTLY this JSON structure (no other text):
 }`;
 
     console.log("🧠 SENTIMENT_AUDIT: Calling Gemini for tone analysis...");
-    const result   = await model.generateContent(prompt);
+    const result = await model.generateContent(prompt);
     const response = await result.response;
-    const rawText  = response.text();
+    const rawText = response.text();
     console.log("🧠 SENTIMENT_AUDIT: Gemini raw response length:", rawText.length);
 
     // ── Extract JSON block ───────────────────────────────────────────────────

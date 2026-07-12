@@ -63,7 +63,7 @@ export const extractProfessionalEntities = async (profileData, prompts = null) =
     if (profileData.work_environment) parts.push(`Work Environment: ${profileData.work_environment}`);
     if (profileData.about_me) parts.push(`Bio: ${profileData.about_me}`);
     if (profileData.city) parts.push(`City: ${profileData.city}`);
-    
+
     // Add lifestyle text or rhythms if available
     if (profileData.life_rhythms && typeof profileData.life_rhythms === "object") {
       if (profileData.life_rhythms.work_rhythm) parts.push(`Work Rhythm: ${profileData.life_rhythms.work_rhythm}`);

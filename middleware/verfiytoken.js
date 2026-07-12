@@ -18,8 +18,14 @@ export const validateAccessToken = async (req, res, next) => {
     req.user = verifyAccessToken;
     next();
   } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: "Invalid or expire token" });
+    console.error("❌ Token validation failed:", err.message);
+    if (err.name === "TokenExpiredError") {
+      return res.status(401).json({ message: "Access token expired" });
+    }
+    if (err.name === "JsonWebTokenError") {
+      return res.status(401).json({ message: "Invalid access token" });
+    }
+    return res.status(401).json({ message: "Invalid or expired token" });
   }
 };
 

@@ -400,7 +400,7 @@ export const generateAICompatibility = async (profileA, profileB, localScores = 
     const tagMatch = scoresObj?.intent_tag_match ?? 70;
     const contextualMatch = scoresObj?.contextual_match ?? 70;
     const professionalMatch = scoresObj?.professional_alignment ?? 68;
-    
+
     const overall = (scoresObj?.pre_computed_combined ?? Math.round(
       vectorSim * 0.3 + tagMatch * 0.3 + contextualMatch * 0.2 + professionalMatch * 0.2
     )) || 68;
@@ -447,7 +447,7 @@ export const generateAICompatibility = async (profileA, profileB, localScores = 
     if (!p.intent_embedding) missing.push("intent_embedding");
     if (!p.contextual_tags || Object.keys(p.contextual_tags_parsed || {}).length === 0) missing.push("contextual_tags");
     if (!p.normalized_entities || Object.keys(p.normalized_entities_parsed || {}).length === 0) missing.push("normalized_entities");
-    
+
     const promptsCount = Object.keys(p.prompts || {}).length;
     if (promptsCount === 0) missing.push("profile_prompts");
 
@@ -570,18 +570,18 @@ export const generateAICompatibility = async (profileA, profileB, localScores = 
         // Tells the AI about each user's emotional tone, stress level, and
         // what kind of partner they psychologically need right now.
         sentiment_audit: sentimentAudit ? {
-          primary_tone:            sentimentAudit.primary_tone            || "N/A",
-          stress_level:            sentimentAudit.stress_level            || "N/A",
-          emotional_energy:        sentimentAudit.emotional_energy        || "N/A",
-          social_capacity:         sentimentAudit.social_capacity         || "N/A",
-          relationship_need:       sentimentAudit.relationship_need       || "N/A",
-          emotional_resilience:    sentimentAudit.emotional_resilience    || "N/A",
-          lifestyle_friction:      sentimentAudit.lifestyle_friction      || "N/A",
-          conflict_style:          sentimentAudit.conflict_style          || "N/A",
-          stress_recovery_style:   sentimentAudit.stress_recovery_style  || "N/A",
-          communication_pressure:  sentimentAudit.communication_pressure  || "N/A",
+          primary_tone: sentimentAudit.primary_tone || "N/A",
+          stress_level: sentimentAudit.stress_level || "N/A",
+          emotional_energy: sentimentAudit.emotional_energy || "N/A",
+          social_capacity: sentimentAudit.social_capacity || "N/A",
+          relationship_need: sentimentAudit.relationship_need || "N/A",
+          emotional_resilience: sentimentAudit.emotional_resilience || "N/A",
+          lifestyle_friction: sentimentAudit.lifestyle_friction || "N/A",
+          conflict_style: sentimentAudit.conflict_style || "N/A",
+          stress_recovery_style: sentimentAudit.stress_recovery_style || "N/A",
+          communication_pressure: sentimentAudit.communication_pressure || "N/A",
           recommended_partner_traits: sentimentAudit.recommended_partner_traits || [],
-          burnout_signals:         sentimentAudit.burnout_signals         || [],
+          burnout_signals: sentimentAudit.burnout_signals || [],
         } : null,
 
         // ── Normalized Professional Entities (NER) ────────────────────────
@@ -783,7 +783,7 @@ JSON SCHEMA TO RETURN:
   } catch (error) {
     console.error("❌ generateAICompatibility Error captured in catch block:", error.message || error);
     console.log("🛡️ ACTIVATING GRACEFUL COMPATIBILITY FALLBACK ENGINE (Local Data Anchored)");
-    
+
     // Dynamic fallback generation using pre-computed scores so the client always succeeds
     const fallbackReport = generateLocalFallbackReport(profileA, profileB, localScores);
     console.log("🛡️ Successfully generated dynamic fallback report:", JSON.stringify(fallbackReport));

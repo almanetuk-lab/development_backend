@@ -48,6 +48,46 @@ export const testConnection = async () => {
     `);
     console.log("🧬 profile_compatibilities table and indexes successfully verified.");
 
+    // Dynamic table initialization for digital_twins
+    console.log("🧬 Verifying digital_twins table...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS digital_twins (
+        id SERIAL PRIMARY KEY,
+        user_id INT UNIQUE NOT NULL,
+        twin_data JSONB NOT NULL,
+        current_state_summary TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log("🧬 digital_twins table successfully verified.");
+
+    // Dynamic table initialization for handshake_sessions
+    console.log("🧬 Verifying handshake_sessions table...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS handshake_sessions (
+        id SERIAL PRIMARY KEY,
+        user_a_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_b_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        status VARCHAR(50) NOT NULL DEFAULT 'completed',
+        compatibility_markers JSONB NOT NULL,
+        risk_flags JSONB NOT NULL,
+        handshake_summary TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_handshake_sessions_user_a ON handshake_sessions (user_a_id);
+      CREATE INDEX IF NOT EXISTS idx_handshake_sessions_user_b ON handshake_sessions (user_b_id);
+    `);
+    console.log("🧬 handshake_sessions table and indexes successfully verified.");
+
+    // Dynamic columns verification for handshake_sessions table
+    console.log("🧬 Verifying handshake_sessions table stress synchronization columns...");
+    await pool.query(`
+      ALTER TABLE handshake_sessions ADD COLUMN IF NOT EXISTS stress_synchronization JSONB;
+    `);
+    console.log("🧬 handshake_sessions table stress synchronization columns successfully verified.");
+
     // Dynamic columns verification for profiles psychological data
     console.log("🧬 Verifying profiles table psychological AI columns...");
     await pool.query(`
