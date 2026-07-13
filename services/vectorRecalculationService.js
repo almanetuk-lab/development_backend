@@ -4,7 +4,7 @@
  * Point #9 — Real-Time Vector Recalculation for Intentional Connection
  * Platform: Intentional Connection
  *
- * Responsibilities:
+ * Responsibilities: d
  *   - Provide a shared deduplication lock (per-user) to prevent concurrent
  *     embedding generation for the same user (e.g., rapid profile saves).
  *   - Expose a standalone `recalculateUserVector(userId)` that runs the FULL
@@ -22,15 +22,19 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { pool }                        from "../config/db.js";
-import { extractIntentTags,
-         enrichContextualMetadata }    from "./geminiService.js";
-import { buildSemanticProfileText,
-         generateEmbedding }           from "./embeddingService.js";
+import { pool } from "../config/db.js";
+import {
+  extractIntentTags,
+  enrichContextualMetadata
+} from "./geminiService.js";
+import {
+  buildSemanticProfileText,
+  generateEmbedding
+} from "./embeddingService.js";
 import { extractProfessionalEntities } from "./entityRecognitionService.js";
-import { analyzeSentimentAndTone }     from "./sentimentAuditService.js";
-import { isSentimentAuditEnabled }     from "../config/sentimentConfig.js";
-import { generateSpiderGraphData }     from "./spiderGraphService.js";
+import { analyzeSentimentAndTone } from "./sentimentAuditService.js";
+import { isSentimentAuditEnabled } from "../config/sentimentConfig.js";
+import { generateSpiderGraphData } from "./spiderGraphService.js";
 import { upsertUserVector } from "./pineconeService.js";
 
 // ── Deduplication Guard ──────────────────────────────────────────────────────
@@ -116,29 +120,29 @@ export const hasRecalculatableData = (profileData) => {
   } = profileData;
 
   return !!(
-    (about_me            && String(about_me).trim().length > 0)            ||
-    (profession          && String(profession).trim().length > 0)          ||
-    (prompts             && typeof prompts === "object" && Object.keys(prompts).length > 0) ||
-    (relationship_goal   && String(relationship_goal).trim().length > 0)   ||
+    (about_me && String(about_me).trim().length > 0) ||
+    (profession && String(profession).trim().length > 0) ||
+    (prompts && typeof prompts === "object" && Object.keys(prompts).length > 0) ||
+    (relationship_goal && String(relationship_goal).trim().length > 0) ||
     (relationship_values && String(relationship_values).trim().length > 0) ||
-    (life_rhythms        && typeof life_rhythms === "object" && Object.keys(life_rhythms).length > 0) ||
-    (life_rhythms        && typeof life_rhythms === "string" && life_rhythms.trim().length > 2) ||
-    (work_environment    && String(work_environment).trim().length > 0)    ||
-    (work_rhythm         && String(work_rhythm).trim().length > 0)         ||
+    (life_rhythms && typeof life_rhythms === "object" && Object.keys(life_rhythms).length > 0) ||
+    (life_rhythms && typeof life_rhythms === "string" && life_rhythms.trim().length > 2) ||
+    (work_environment && String(work_environment).trim().length > 0) ||
+    (work_rhythm && String(work_rhythm).trim().length > 0) ||
     (health_activity_level && String(health_activity_level).trim().length > 0) ||
-    (religious_belief    && String(religious_belief).trim().length > 0)    ||
-    (freetime_style      && String(freetime_style).trim().length > 0)      ||
-    (smoking             && String(smoking).trim().length > 0)             ||
-    (drinking            && String(drinking).trim().length > 0)            ||
-    (city                && String(city).trim().length > 0)                ||
-    (company             && String(company).trim().length > 0)             ||
-    (company_type        && String(company_type).trim().length > 0)        ||
-    (interested_in       && String(interested_in).trim().length > 0)       ||
-    (relationship_pace   && String(relationship_pace).trim().length > 0)   ||
+    (religious_belief && String(religious_belief).trim().length > 0) ||
+    (freetime_style && String(freetime_style).trim().length > 0) ||
+    (smoking && String(smoking).trim().length > 0) ||
+    (drinking && String(drinking).trim().length > 0) ||
+    (city && String(city).trim().length > 0) ||
+    (company && String(company).trim().length > 0) ||
+    (company_type && String(company_type).trim().length > 0) ||
+    (interested_in && String(interested_in).trim().length > 0) ||
+    (relationship_pace && String(relationship_pace).trim().length > 0) ||
     (love_language_affection && String(love_language_affection).trim().length > 0) ||
-    (self_expression     && String(self_expression).trim().length > 0)     ||
+    (self_expression && String(self_expression).trim().length > 0) ||
     (career_decision_style && String(career_decision_style).trim().length > 0) ||
-    (work_demand_response  && String(work_demand_response).trim().length > 0)
+    (work_demand_response && String(work_demand_response).trim().length > 0)
   );
 };
 
@@ -231,15 +235,15 @@ export const recalculateUserVector = async (
   // Track what was successfully generated
   const stats = {
     normalized_entities: false,
-    intent_tags:         false,
-    contextual_tags:     false,
-    sentiment_audit:     false,
-    intent_embedding:    false,
+    intent_tags: false,
+    contextual_tags: false,
+    sentiment_audit: false,
+    intent_embedding: false,
     embedding_dimensions: 0,
-    db_updated:          false,
-    cache_invalidated:   false,
-    cache_rows_deleted:  0,
-    duration_ms:         0,
+    db_updated: false,
+    cache_invalidated: false,
+    cache_rows_deleted: 0,
+    duration_ms: 0,
   };
 
   try {
@@ -260,21 +264,21 @@ export const recalculateUserVector = async (
 
     // Build compact profile data object for all AI services
     const profileData = {
-      about_me:             profile.about_me,
-      profession:           profile.profession,
-      company:              profile.company,
-      company_type:         profile.company_type,
-      city:                 profile.city,
-      state:                profile.state,
-      country:              profile.country,
-      relationship_goal:    profile.relationship_goal,
-      relationship_values:  profile.relationship_values,
-      life_rhythms:         profile.life_rhythms,
-      work_environment:     profile.work_environment,
-      work_rhythm:          profile.work_rhythm,
-      health_activity_level:profile.health_activity_level,
-      religious_belief:     profile.religious_belief,
-      freetime_style:       profile.freetime_style,
+      about_me: profile.about_me,
+      profession: profile.profession,
+      company: profile.company,
+      company_type: profile.company_type,
+      city: profile.city,
+      state: profile.state,
+      country: profile.country,
+      relationship_goal: profile.relationship_goal,
+      relationship_values: profile.relationship_values,
+      life_rhythms: profile.life_rhythms,
+      work_environment: profile.work_environment,
+      work_rhythm: profile.work_rhythm,
+      health_activity_level: profile.health_activity_level,
+      religious_belief: profile.religious_belief,
+      freetime_style: profile.freetime_style,
     };
 
     // ── Step 2: NER — Normalized Professional Entities ────────────────────────
@@ -289,12 +293,12 @@ export const recalculateUserVector = async (
     }
 
     // ── Step 3: Intent Tags + Confidence Score ────────────────────────────────
-    let intent_tags      = null;
+    let intent_tags = null;
     let confidence_score = null;
     console.log(`🤖 [VectorRecalc] Step 3: Extracting intent tags...`);
     try {
       const geminiResult = await extractIntentTags(profileData, prompts);
-      intent_tags      = geminiResult.intent_tags;
+      intent_tags = geminiResult.intent_tags;
       confidence_score = geminiResult.confidence_score;
       stats.intent_tags = true;
       console.log(`   ✓ Intent tags: ${JSON.stringify(intent_tags)}`);
@@ -338,17 +342,17 @@ export const recalculateUserVector = async (
     try {
       const fullProfileForEmbedding = {
         ...profileData,
-        contextual_tags_parsed:   contextual_tags,
+        contextual_tags_parsed: contextual_tags,
         normalized_entities,
-        relationship_pace:        profile.relationship_pace,
-        love_language_affection:  profile.love_language_affection,
-        children_preference:      profile.children_preference,
-        interested_in:            profile.interested_in,
-        health_activity_level:    profile.health_activity_level,
-        religious_belief:         profile.religious_belief,
-        freetime_style:           profile.freetime_style,
-        interests_parsed:         typeof profile.interests === "object" ? profile.interests : null,
-        hobbies_parsed:           typeof profile.hobbies   === "object" ? profile.hobbies   : null,
+        relationship_pace: profile.relationship_pace,
+        love_language_affection: profile.love_language_affection,
+        children_preference: profile.children_preference,
+        interested_in: profile.interested_in,
+        health_activity_level: profile.health_activity_level,
+        religious_belief: profile.religious_belief,
+        freetime_style: profile.freetime_style,
+        interests_parsed: typeof profile.interests === "object" ? profile.interests : null,
+        hobbies_parsed: typeof profile.hobbies === "object" ? profile.hobbies : null,
         prompts,
       };
 
@@ -358,7 +362,7 @@ export const recalculateUserVector = async (
       if (semanticText && semanticText.trim().length > 0) {
         intent_embedding = await generateEmbedding(semanticText);
         if (intent_embedding && Array.isArray(intent_embedding)) {
-          stats.intent_embedding    = true;
+          stats.intent_embedding = true;
           stats.embedding_dimensions = intent_embedding.length;
           console.log(`   ✓ Embedding generated: ${intent_embedding.length} dimensions`);
         } else {
@@ -406,15 +410,15 @@ export const recalculateUserVector = async (
     `;
 
     const updateValues = [
-      intent_tags        ? JSON.stringify(intent_tags)        : null, // $1
+      intent_tags ? JSON.stringify(intent_tags) : null, // $1
       (confidence_score !== null && confidence_score !== undefined)
-                         ? confidence_score                   : null, // $2
-      contextual_tags    ? JSON.stringify(contextual_tags)    : null, // $3
-      normalized_entities? JSON.stringify(normalized_entities): null, // $4
-      intent_embedding   ? JSON.stringify(intent_embedding)   : null, // $5
-      sentiment_audit    ? JSON.stringify(sentiment_audit)    : null, // $6
+        ? confidence_score : null, // $2
+      contextual_tags ? JSON.stringify(contextual_tags) : null, // $3
+      normalized_entities ? JSON.stringify(normalized_entities) : null, // $4
+      intent_embedding ? JSON.stringify(intent_embedding) : null, // $5
+      sentiment_audit ? JSON.stringify(sentiment_audit) : null, // $6
       userId,                                                          // $7
-      spider_graph_data  ? JSON.stringify(spider_graph_data)  : null, // $8
+      spider_graph_data ? JSON.stringify(spider_graph_data) : null, // $8
     ];
 
     const updateResult = await pool.query(updateQuery, updateValues);
@@ -448,7 +452,7 @@ export const recalculateUserVector = async (
         `DELETE FROM profile_compatibilities WHERE user_a_id = $1 OR user_b_id = $1`,
         [userId]
       );
-      stats.cache_invalidated  = true;
+      stats.cache_invalidated = true;
       stats.cache_rows_deleted = delResult.rowCount || 0;
       console.log(`   ✓ Deleted ${stats.cache_rows_deleted} stale compatibility record(s) for user ${uid}`);
     } catch (cacheErr) {
@@ -459,12 +463,12 @@ export const recalculateUserVector = async (
     stats.duration_ms = Date.now() - startTime;
     console.log(`\n✅ [VectorRecalc] COMPLETE for user ${uid} in ${stats.duration_ms}ms`);
     console.log(`   → normalized_entities: ${stats.normalized_entities ? "✓" : "✗"}`);
-    console.log(`   → intent_tags:         ${stats.intent_tags         ? "✓" : "✗"}`);
-    console.log(`   → contextual_tags:     ${stats.contextual_tags     ? "✓" : "✗"}`);
-    console.log(`   → sentiment_audit:     ${stats.sentiment_audit     ? "✓" : isSentimentAuditEnabled() ? "✗ (failed)" : "— (disabled)"}`);
-    console.log(`   → spider_graph_data:   ${stats.spider_graph_data   ? "✓" : "✗"}`);
-    console.log(`   → intent_embedding:    ${stats.intent_embedding    ? `✓ (${stats.embedding_dimensions}d)` : "✗ (failed)"}`);
-    console.log(`   → cache_invalidated:   ${stats.cache_invalidated   ? `✓ (${stats.cache_rows_deleted} rows)` : "✗ (failed)"}`);
+    console.log(`   → intent_tags:         ${stats.intent_tags ? "✓" : "✗"}`);
+    console.log(`   → contextual_tags:     ${stats.contextual_tags ? "✓" : "✗"}`);
+    console.log(`   → sentiment_audit:     ${stats.sentiment_audit ? "✓" : isSentimentAuditEnabled() ? "✗ (failed)" : "— (disabled)"}`);
+    console.log(`   → spider_graph_data:   ${stats.spider_graph_data ? "✓" : "✗"}`);
+    console.log(`   → intent_embedding:    ${stats.intent_embedding ? `✓ (${stats.embedding_dimensions}d)` : "✗ (failed)"}`);
+    console.log(`   → cache_invalidated:   ${stats.cache_invalidated ? `✓ (${stats.cache_rows_deleted} rows)` : "✗ (failed)"}`);
     console.log(`🔄 [VectorRecalc] ${"═".repeat(52)}\n`);
 
     return { success: true, skipped: false, error: null, stats };
