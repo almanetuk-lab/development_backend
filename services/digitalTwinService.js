@@ -7,7 +7,7 @@ dotenv.config();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 /**
- * Default flat burnout curve — used when no historical data is available.
+ * Default flat budrnout curve — used when no historical data is available.
  * Values represent estimated stress intensity per month (0–100).
  */
 const DEFAULT_BURNOUT_CURVE = {
