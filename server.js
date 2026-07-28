@@ -71,22 +71,67 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files from "uploads" directory
 //app.use("/uploads", express.static("uploads"));
 
-app.use(cors({
-    origin: ['http://localhost:5173', 'https://intentionalconnections.app', 'https://frontend1-7fsg.onrender.com/', 'https://intentional-connection.onrender.com'],
-    credentials: true
-}));
+// -------------------- CORS Configuration ------------------------
+const staticAllowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:3000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  "http://127.0.0.1:3000",
+  "https://intentionalconnections.app",
+  "https://frontend1-7fsg.onrender.com",
+  "https://intentional-connection.onrender.com",
+  "https://development-frontend-livid.vercel.app"
+];
 
+const getAllowedOrigins = () => {
+  const list = [...staticAllowedOrigins];
+  if (process.env.FRONTEND_URL) {
+    list.push(process.env.FRONTEND_URL.replace(/\/+$/, ''));
+  }
+  if (process.env.CORS_ALLOWED_ORIGINS) {
+    process.env.CORS_ALLOWED_ORIGINS.split(',').forEach((url) => {
+      const trimmed = url.trim().replace(/\/+$/, '');
+      if (trimmed) list.push(trimmed);
+    });
+  }
+  return list;
+};
 
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. server-to-server, curl, Postman, mobile apps)
+    if (!origin) return callback(null, true);
+
+    const normalized = origin.replace(/\/+$/, '');
+    const origins = getAllowedOrigins();
+
+    if (
+      origins.includes(normalized) ||
+      /\.onrender\.com$/.test(normalized) ||
+      /\.vercel\.app$/.test(normalized) ||
+      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)
+    ) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    return callback(new Error(`CORS policy does not allow access from origin: ${origin}`));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
 
 //  Create HTTP + Socket.IO server
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin:"*", 
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
-   transports: ["websocket", "polling"],
+  cors: corsOptions,
+  transports: ["websocket", "polling"],
 });
   console.log("✅ Socket connected");
 //  Track online users (userId → socketId)
