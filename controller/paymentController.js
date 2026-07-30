@@ -4,6 +4,109 @@ import { pool } from "../config/db.js";
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 /* ======================================================
+   0) SHARED FULFILLMENT LOGIC (USED BY WEBHOOK & VERIFY)
+====================================================== */
+export const fulfillPayment = async (session) => {
+  const user_id = Number(session.metadata?.user_id);
+  const plan_id = Number(session.metadata?.plan_id);
+  const amount = (session.amount_total || 0) / 100;
+  const currency = (session.currency || "gbp").toUpperCase();
+
+  if (!user_id || !plan_id) {
+    throw new Error("Missing metadata user_id or plan_id in Stripe session");
+  }
+
+  /* 1️⃣ Mark payment SUCCESS */
+  const paymentRes = await pool.query(
+    `
+    UPDATE payments
+    SET status='success', amount=$1, currency=$2
+    WHERE stripe_session_id=$3
+    RETURNING id
+    `,
+    [amount, currency, session.id]
+  );
+
+  let payment_id;
+  if (paymentRes.rows.length === 0) {
+    const planRes = await pool.query(`SELECT name, price FROM plans WHERE id=$1`, [plan_id]);
+    const planName = planRes.rows[0]?.name || "Subscription Plan";
+    const planPrice = planRes.rows[0]?.price || amount;
+
+    const newPayment = await pool.query(
+      `
+      INSERT INTO payments (user_id, plan_id, plan_name, amount, currency, stripe_session_id, status)
+      VALUES ($1, $2, $3, $4, $5, $6, 'success')
+      RETURNING id
+      `,
+      [user_id, plan_id, planName, planPrice, currency, session.id]
+    );
+    payment_id = newPayment.rows[0].id;
+  } else {
+    payment_id = paymentRes.rows[0].id;
+  }
+
+  /* Check if already active in user_plans */
+  const existingPlan = await pool.query(
+    `SELECT id FROM user_plans WHERE payment_id=$1 AND status='active'`,
+    [payment_id]
+  );
+  if (existingPlan.rows.length > 0) {
+    return { status: "already_fulfilled" };
+  }
+
+  /* 2️⃣ Get plan duration */
+  const planRes = await pool.query(
+    `SELECT duration FROM plans WHERE id=$1`,
+    [plan_id]
+  );
+
+  if (planRes.rows.length === 0) {
+    throw new Error("Plan not found");
+  }
+
+  const duration = Number(planRes.rows[0].duration);
+
+  /* 3️⃣ Expire old active plans */
+  await pool.query(
+    `
+    UPDATE user_plans
+    SET status='expired'
+    WHERE user_id=$1 AND status='active'
+    `,
+    [user_id]
+  );
+
+  /* 4️⃣ Insert new active plan */
+  const insertResult = await pool.query(
+    `
+    INSERT INTO user_plans
+    (
+      user_id,
+      plan_id,
+      payment_id,
+      status,
+      starts_at,
+      expires_at
+    )
+    VALUES (
+      $1,
+      $2,
+      $3,
+      'active',
+      NOW(),
+      NOW() + ($4 * INTERVAL '1 day')
+    )
+    RETURNING *
+    `,
+    [user_id, plan_id, payment_id, duration]
+  );
+
+  console.log("✅ user_plans inserted:", insertResult.rows);
+  return { status: "success", plan: insertResult.rows[0] };
+};
+
+/* ======================================================
    1) CREATE CHECKOUT SESSION
 ====================================================== */
 export const createCheckoutSession = async (req, res) => {
@@ -14,6 +117,8 @@ export const createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "Missing plan or user_id" });
     }
 
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/+$/, "");
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
@@ -22,13 +127,13 @@ export const createCheckoutSession = async (req, res) => {
           price_data: {
             currency: "gbp",
             product_data: { name: plan.name },
-            unit_amount: plan.price * 100,
+            unit_amount: Math.round(Number(plan.price) * 100),
           },
           quantity: 1,
         },
       ],
-      success_url: `${process.env.FRONTEND_URL}/#/payment-success`,
-      cancel_url: `${process.env.FRONTEND_URL}/#/payment-failed`,
+      success_url: `${frontendUrl}/#/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/#/payment-failed`,
       metadata: {
         user_id: String(user_id),
         plan_id: String(plan.id),
@@ -53,7 +158,32 @@ export const createCheckoutSession = async (req, res) => {
 };
 
 /* ======================================================
-   2) STRIPE WEBHOOK  (PAYMENT → USER PLAN)
+   2) VERIFY CHECKOUT SESSION (FRONTEND SUCCESS REDIRECT)
+====================================================== */
+export const verifyCheckoutSession = async (req, res) => {
+  try {
+    const { session_id } = req.body;
+
+    if (!session_id) {
+      return res.status(400).json({ message: "Missing session_id" });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (session.payment_status === "paid" || session.status === "complete") {
+      const fulfillment = await fulfillPayment(session);
+      return res.json({ success: true, message: "Payment verified & plan activated!", fulfillment });
+    } else {
+      return res.status(400).json({ success: false, message: "Payment status is not paid" });
+    }
+  } catch (err) {
+    console.error("❌ Verify session error:", err);
+    res.status(500).json({ success: false, message: err.message || "Failed to verify session" });
+  }
+};
+
+/* ======================================================
+   3) STRIPE WEBHOOK (PAYMENT → USER PLAN)
 ====================================================== */
 export const stripeWebhook = async (req, res) => {
   const sig = req.headers["stripe-signature"];
@@ -72,79 +202,8 @@ export const stripeWebhook = async (req, res) => {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-
-    const user_id = Number(session.metadata.user_id);
-    const plan_id = Number(session.metadata.plan_id);
-    const amount = session.amount_total / 100;
-    const currency = session.currency.toUpperCase();
-
     try {
-      /* 1️⃣ Mark payment SUCCESS */
-      const paymentRes = await pool.query(
-        `
-        UPDATE payments
-        SET status='success', amount=$1, currency=$2
-        WHERE stripe_session_id=$3
-        RETURNING id
-        `,
-        [amount, currency, session.id]
-      );
-
-      if (paymentRes.rows.length === 0) {
-        console.error("❌ Payment row not found");
-        return res.json({ received: true });
-      }
-
-      const payment_id = paymentRes.rows[0].id;
-
-      /* 2️⃣ Get plan duration (NUMBER of days) */
-      const planRes = await pool.query(
-        `SELECT duration FROM plans WHERE id=$1`,
-        [plan_id]
-      );
-
-      if (planRes.rows.length === 0) {
-        throw new Error("❌ Plan not found");
-      }
-
-      const duration = Number(planRes.rows[0].duration); // 🔥 IMPORTANT
-
-      /* 3️⃣ Expire old active plans */
-      await pool.query(
-        `
-        UPDATE user_plans
-        SET status='expired'
-        WHERE user_id=$1 AND status='active'
-        `,
-        [user_id]
-      );
-
-      /* 4️⃣ Insert new active plan (✅ FIXED INTERVAL) */
-      const insertResult = await pool.query(
-        `
-        INSERT INTO user_plans
-        (
-          user_id,
-          plan_id,
-          payment_id,
-          status,
-          starts_at,
-          expires_at
-        )
-        VALUES (
-          $1,
-          $2,
-          $3,
-          'active',
-          NOW(),
-          NOW() + ($4 * INTERVAL '1 day')
-        )
-        RETURNING *
-        `,
-        [user_id, plan_id, payment_id, duration]
-      );
-
-      console.log("✅ user_plans inserted:", insertResult.rows);
+      await fulfillPayment(session);
     } catch (err) {
       console.error("❌ Webhook DB error:", err);
     }
@@ -162,7 +221,7 @@ export const stripeWebhook = async (req, res) => {
 };
 
 /* ======================================================
-   3) PAYMENT HISTORY
+   4) PAYMENT HISTORY
 ====================================================== */
 export const getUserPayments = async (req, res) => {
   const { user_id } = req.params;
