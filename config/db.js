@@ -27,6 +27,17 @@ export const testConnection = async () => {
     const result = await pool.query("SELECT NOW()");
     console.log("✅ Connected to PostgreSQL. Current time:", result.rows[0].now);
 
+    // Verify/alter notifications table
+    console.log("🔔 Verifying notifications table columns...");
+    await pool.query(`
+      ALTER TABLE notifications 
+      ADD COLUMN IF NOT EXISTS sender_id INTEGER,
+      ADD COLUMN IF NOT EXISTS sender_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS source VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS reaction_emoji VARCHAR(50);
+    `);
+    console.log("🔔 notifications table columns verified.");
+
     // Dynamic table initialization for profile_compatibilities with indexes
     console.log("🧬 Verifying profile_compatibilities table...");
     await pool.query(`
