@@ -142,7 +142,7 @@ io.on("connection", (socket) => {
 
   // When frontend registers userId with socket
   socket.on("register_user", (userId) => {
-    onlineUsers.set(userId, socket.id);
+    onlineUsers.set(String(userId), socket.id);
     console.log(` User ${userId} registered for notifications`);
   });
    //console.log('Socket connected', socket.id);
@@ -159,18 +159,18 @@ io.on("connection", (socket) => {
 });
 
 //  Function to send notification
-export const sendNotification = async (userId, title, message,) => {
+export const sendNotification = async (userId, title, message) => {
   try {
     // Save in notifications table
-    await pool.query(
-      `INSERT INTO notifications (user_id, title, message) VALUES ($1, $2, $3)`,
+    const result = await pool.query(
+      `INSERT INTO notifications (user_id, title, message, type, is_read, created_at, source) VALUES ($1, $2, $3, 'general', FALSE, NOW(), 'admin') RETURNING *`,
       [userId, title, message]
     );
 
     // Send via Socket.IO if user is online
-    const socketId = onlineUsers.get(userId);
-    if (socketId) {
-      io.to(socketId).emit("new_notification", { title, message });
+    const socketId = onlineUsers.get(String(userId));
+    if (socketId && result.rows.length > 0) {
+      io.to(socketId).emit("new_notification", result.rows[0]);
     }
 
     console.log(` Notification sent to user ${userId}: ${title}`);

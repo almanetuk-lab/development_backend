@@ -74,6 +74,8 @@ export const updateProfile = async (req, res) => {
       ways_i_spend_time,
       prompts,
       about_me,
+      latitude,
+      longitude,
     } = req.body;
 
     if (!email || !first_name || !last_name || !dob || age === undefined || age === null) {
@@ -435,6 +437,18 @@ export const updateProfile = async (req, res) => {
     console.log("FINAL SQL PARAMS:", profileValues);
     console.log("=========================================");
 
+    if (latitude !== undefined && longitude !== undefined) {
+      const lat = Number(latitude);
+      const lon = Number(longitude);
+      if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+        const pointWkt = `POINT(${lon} ${lat})`;
+        await pool.query(
+          `UPDATE profiles SET location = ST_GeographyFromText($1) WHERE user_id = $2`,
+          [pointWkt, userId]
+        );
+      }
+    }
+
     const profileResult = await pool.query(updateProfileQuery, profileValues);
 
     // 🌲 Pinecone Integration: Dual Storage sync during profile update
@@ -530,6 +544,8 @@ export const updateProfile = async (req, res) => {
 
     const profileWithPrompts = {
       ...safeProfile,
+      latitude: latitude !== undefined ? Number(latitude) : null,
+      longitude: longitude !== undefined ? Number(longitude) : null,
       prompts: savedPrompts.reduce((acc, cur) => {
         acc[cur.question_key] = cur.answer;
         return acc;
@@ -629,6 +645,8 @@ export const getProfile = async (req, res) => {
         sentiment_audit,
         spider_graph_data,
         is_submitted,
+        ST_Y(location::geometry) as latitude,
+        ST_X(location::geometry) as longitude,
         updated_at
       FROM profiles
       WHERE user_id = $1
@@ -719,6 +737,8 @@ export const getProfile = async (req, res) => {
       confidence_score: profile.confidence_score !== null && profile.confidence_score !== undefined ? profile.confidence_score : null,
       image_url: profile.image_url || null,
       is_submitted: profile.is_submitted || false,
+      latitude: profile.latitude || null,
+      longitude: profile.longitude || null,
       updated_at: profile.updated_at || null,
     };
     console.log("my profile data:", combinedData);
@@ -755,6 +775,88 @@ const saveOrUpdateProfilePrompts = async (profileId, prompts) => {
   }
 
   return results;
+};
+
+// 🟢 Update Location (PostGIS)
+export const updateLocation = async (req, res) => {
+  try {
+    const { latitude, longitude } = req.body;
+    const userId = req.user.id;
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ message: "Latitude and longitude are required" });
+    }
+
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+
+    if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return res.status(400).json({ message: "Invalid coordinates values" });
+    }
+
+    // Format POINT(longitude latitude) - ORDER MATTERS in PostGIS
+    const pointWkt = `POINT(${lon} ${lat})`;
+
+    const query = `
+      UPDATE profiles
+      SET 
+        location = ST_GeographyFromText($1),
+        latitude = $3,
+        longitude = $4,
+        updated_at = NOW()
+      WHERE user_id = $2
+      RETURNING *;
+    `;
+
+    const { rows } = await pool.query(query, [pointWkt, userId, lat, lon]);
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Profile not found" });
+    }
+
+    return res.status(200).json({
+      message: "Location updated successfully",
+      profile: rows[0]
+    });
+  } catch (error) {
+    console.error("Error updating location:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// 🟢 Get Nearby Profiles (PostGIS RPC wrapper)
+export const getNearbyProfiles = async (req, res) => {
+  try {
+    const { latitude, longitude, radiusInKm } = req.query;
+    const userId = req.user.id;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({ message: "Latitude and longitude are required" });
+    }
+
+    const lat = Number(latitude);
+    const lon = Number(longitude);
+    const radius = Number(radiusInKm || 50) * 1000; // default 50km in meters
+
+    if (isNaN(lat) || isNaN(lon) || isNaN(radius)) {
+      return res.status(400).json({ message: "Invalid query parameters" });
+    }
+
+    const query = `
+      SELECT * FROM get_nearby_profiles($1, $2, $3)
+      WHERE user_id != $4;
+    `;
+
+    const { rows } = await pool.query(query, [lat, lon, radius, userId]);
+
+    return res.status(200).json({
+      message: "Nearby profiles fetched successfully",
+      data: rows
+    });
+  } catch (error) {
+    console.error("Error fetching nearby profiles:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
 };
 
 /* Example of prompts object:

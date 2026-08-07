@@ -486,6 +486,17 @@ export const getMessagesForUser = async (req, res) => {
       [myUserId, userId]
     );
 
+    await pool.query(
+      `
+      UPDATE notifications
+      SET is_read = TRUE
+      WHERE user_id = $1
+        AND sender_id = $2
+        AND is_read = FALSE
+      `,
+      [myUserId, userId]
+    );
+
     return res.status(200).json(rows);
   } catch (error) {
     console.error("Error fetching messages:", error.message);
@@ -578,18 +589,26 @@ export const getAllMessages = async (req, res) => {
     io.emit("new_message", savedMessage);
 
     // 🔔 NOTIFICATION
-    await pool.query(
+    const notifResult = await pool.query(
       `
-      INSERT INTO notifications (user_id, title, message, type, is_read, created_at)
-      VALUES ($1, $2, $3, $4, FALSE, NOW())
+      INSERT INTO notifications (user_id, title, message, type, is_read, created_at, sender_id, sender_name, source)
+      VALUES ($1, $2, $3, $4, FALSE, NOW(), $5, $6, 'message')
+      RETURNING *
       `,
       [
         receiver_id,
         "New Message 💬",
         `${senderFullName} sent you a new message`,
         "Message",
+        sender_id,
+        senderFullName
       ],
     );
+
+    const receiverSocketId = onlineUsers.get(String(receiver_id));
+    if (receiverSocketId && notifResult.rows.length > 0) {
+      io.to(receiverSocketId).emit("new_notification", notifResult.rows[0]);
+    }
 
     return res.status(201).json(savedMessage);
   } catch (error) {
@@ -641,20 +660,20 @@ export const addReaction = async (req, res) => {
       : `User ${user_id}`;
     const notificationMessage = `${senderFullName} reacted with "${emoji}" on your message.`;
     // Create notification
-    await createNotification(
+    const createdNotif = await createNotification(
       reactionReceiverId,
       "New Reaction 💬",
       notificationMessage,
       "reaction",
+      user_id,
+      senderFullName,
+      "reaction",
+      emoji
     );
 
-    const socketId = onlineUsers.get(reactionReceiverId);
-    if (socketId) {
-      io.to(socketId).emit("new_notification", {
-        title: "New Reaction 💬",
-        message: notificationMessage,
-        reaction,
-      });
+    const socketId = onlineUsers.get(String(reactionReceiverId));
+    if (socketId && createdNotif) {
+      io.to(socketId).emit("new_notification", createdNotif);
     }
 
     io.emit("new_reaction", reaction);

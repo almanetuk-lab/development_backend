@@ -35,15 +35,27 @@ export const markAsRead = async (req, res) => {
 };
 
 // 🔹 Create a new notification (used by backend code)
-export const createNotification = async (user_id, title, message, type = "general") => {
+export const createNotification = async (
+  user_id,
+  title,
+  message,
+  type = "general",
+  sender_id = null,
+  sender_name = null,
+  source = null,
+  reaction_emoji = null
+) => {
   try {
-    await pool.query(
-      `INSERT INTO notifications (user_id, title, message, type, is_read, created_at)
-       VALUES ($1, $2, $3, $4, FALSE, NOW())`,
-      [user_id, title, message, type]
+    const result = await pool.query(
+      `INSERT INTO notifications (user_id, title, message, type, is_read, created_at, sender_id, sender_name, source, reaction_emoji)
+       VALUES ($1, $2, $3, $4, FALSE, NOW(), $5, $6, $7, $8)
+       RETURNING *`,
+      [user_id, title, message, type, sender_id, sender_name, source, reaction_emoji]
     );
+    return result.rows[0];
   } catch (error) {
     console.error("Error creating notification:", error);
+    return null;
   }
 };
 
