@@ -45,6 +45,7 @@ import adminReportRoutes from "./routes/adminreportRoutes.js";
 //import { create } from "domain";
 
 import linkedinRoutes from './routes/linkedinRoutes.js';
+import googleRoutes from './routes/googleRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
 import healthRoutes from "./routes/healthRoutes.js";
 import digitalTwinRoutes from "./routes/digitalTwinRoutes.js";
@@ -232,6 +233,9 @@ app.use("/api/admin/reports", reportRoutes);
 app.use("/api/admin/users/handle",adminReportRoutes);
 // LinkedIn Auth Routes
 app.use('/api/linkedin', linkedinRoutes);
+
+// Google Auth Routes
+app.use('/', googleRoutes);
 
 
 //app.use(express.urlencoded({ extended: true })); 
