@@ -6,22 +6,42 @@ import { pool } from "../config/db.js";
 
 dotenv.config();
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+// Authorization-code flow (popup): the frontend uses @react-oauth/google's
+// useGoogleLogin({ flow: "auth-code" }) which yields a one-time `code`
+// exchanged here for tokens using redirect_uri "postmessage" (the fixed
+// value Google requires for JS popup-based code exchanges).
+const googleClient = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  "postmessage"
+);
 
 // Handles both "Sign in with Google" and "Sign up with Google" -
 // the same endpoint finds an existing user or creates one on the fly.
 export const googleAuth = async (req, res) => {
   try {
-    const { credential } = req.body;
+    const { code } = req.body;
 
-    if (!credential) {
-      return res.status(400).json({ error: "Google credential is required" });
+    if (!code) {
+      return res.status(400).json({ error: "Google authorization code is required" });
+    }
+
+    let tokens;
+    try {
+      ({ tokens } = await googleClient.getToken(code));
+    } catch (exchangeError) {
+      console.error("❌ Google code exchange failed:", exchangeError.message);
+      return res.status(401).json({ error: "Invalid or expired Google authorization code" });
+    }
+
+    if (!tokens?.id_token) {
+      return res.status(401).json({ error: "Google did not return an identity token" });
     }
 
     let payload;
     try {
       const ticket = await googleClient.verifyIdToken({
-        idToken: credential,
+        idToken: tokens.id_token,
         audience: process.env.GOOGLE_CLIENT_ID,
       });
       payload = ticket.getPayload();
@@ -30,10 +50,14 @@ export const googleAuth = async (req, res) => {
       return res.status(401).json({ error: "Invalid Google credential" });
     }
 
-    const { email, given_name, family_name, name } = payload;
+    const { email, given_name, family_name, name, email_verified } = payload;
 
     if (!email) {
       return res.status(400).json({ error: "Google account has no email" });
+    }
+
+    if (email_verified === false) {
+      return res.status(401).json({ error: "Google email is not verified" });
     }
 
     const firstName = given_name || (name ? name.split(" ")[0] : "Google");
