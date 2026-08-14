@@ -340,7 +340,22 @@ if (
        ⭐ SHRADDHA NEW CODE END
     ========================================================== */
 
-    return res.json(finalRows);
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = req.query.limit 
+      ? parseInt(req.query.limit, 10) 
+      : (req.query.page ? 6 : 100); // Default to 6 if page requested, 100 otherwise
+    const totalCount = finalRows.length;
+    const totalPages = Math.ceil(totalCount / limit);
+    const offset = (page - 1) * limit;
+    const paginatedRows = finalRows.slice(offset, offset + limit);
+
+    return res.json({
+      results: paginatedRows,
+      total: totalCount,
+      page,
+      limit,
+      totalPages
+    });
 
   } catch (err) {
     console.error("Search API Error:", err);
