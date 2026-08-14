@@ -105,24 +105,23 @@ const corsOptions = {
     // Allow requests with no origin (e.g. server-to-server, curl, Postman, mobile apps)
     if (!origin) return callback(null, true);
 
-    const normalized = origin.replace(/\/+$/, '');
-    const origins = getAllowedOrigins();
+    const normalized = origin.toLowerCase().replace(/\/+$/, '');
+    const origins = getAllowedOrigins().map(o => o.toLowerCase());
 
     if (
       origins.includes(normalized) ||
-      /\.onrender\.com$/.test(normalized) ||
-      /\.vercel\.app$/.test(normalized) ||
-      /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(normalized)
+      normalized.includes('onrender.com') ||
+      normalized.includes('vercel.app') ||
+      normalized.includes('localhost') ||
+      normalized.includes('127.0.0.1')
     ) {
       return callback(null, true);
     }
 
     console.warn(`[CORS] Blocked origin: ${origin}`);
-    return callback(new Error(`CORS policy does not allow access from origin: ${origin}`));
+    return callback(null, false); // Return false instead of throwing Error to let express handle it gracefully
   },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
   optionsSuccessStatus: 200
 };
 
