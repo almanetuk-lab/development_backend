@@ -332,7 +332,7 @@ import {
   searchUsers,
   getRecentChats as dbGetRecentChats,
 } from "../config/db.js";
-import cloudinary from "../config/cloudinaryConfig.js";
+import { uploadToSupabase } from "../utils/supabaseUpload.js";
 import { createNotification } from "./notificationController.js";
 import { trackMessageActivity } from "../services/trustService.js";
 
@@ -350,26 +350,12 @@ export const uploadFile = async (req, res) => {
       return res.status(400).json({ error: "No file received" });
     }
 
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: "chat_uploads",
-        resource_type: "auto",
-        public_id: uuidv4(),
-      },
-      (error, uploadResult) => {
-        if (error) {
-          console.error("Cloudinary error:", error);
-          return res.status(500).json({ error: "Upload failed" });
-        }
+    const publicUrl = await uploadToSupabase(req.file);
 
-        return res.json({
-          message: "File uploaded successfully",
-          url: uploadResult.secure_url,
-        });
-      },
-    );
-
-    stream.end(req.file.buffer);
+    return res.json({
+      message: "File uploaded successfully",
+      url: publicUrl,
+    });
   } catch (err) {
     console.error("Upload Error:", err);
     return res.status(500).json({ error: "Upload failed" });

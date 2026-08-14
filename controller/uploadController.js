@@ -1,19 +1,19 @@
-import express from "express";
-//import { cloudinary } from "../config/cloudinaryConfig.js";
-import {pool} from "../config/db.js";  
-import { v2 as cloudinary } from "cloudinary";
+import { pool } from "../config/db.js";
+import { supabase, uploadToSupabase } from "../utils/supabaseUpload.js";
 
-// ✅ Controller: Upload Image to Cloudinary
-export  const uploadImage = async (req, res) => {
+// ✅ Controller: Upload Image to Supabase
+export const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    // Cloudinary URL is automatically available in req.file.path
+    // Upload to Supabase Storage and get the public URL
+    const imageUrl = await uploadToSupabase(req.file);
+
     return res.status(200).json({
       message: "Image uploaded successfully",
-      imageUrl: req.file.path,
+      imageUrl: imageUrl,
     });
   } catch (error) {
     console.error("Image upload error:", error);
@@ -61,16 +61,6 @@ export const saveProfileImage = async (req, res) => {
   }
 };
 
-
-
-
-// ✅ Cloudinary config (agar pehle se nahi kiya)
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
 // ✅ Controller: Remove Profile Picture
 export const removeProfilePicture = async (req, res) => {
   try {
@@ -96,24 +86,28 @@ export const removeProfilePicture = async (req, res) => {
       return res.status(400).json({ message: "No profile picture to remove" });
     }
 
-    // Step 2️⃣ - Extract Cloudinary public_id from image URL
-    // Example: https://res.cloudinary.com/demo/image/upload/v1234567/abcxyz.jpg
-    const parts = imageUrl.split("/");
-    const publicIdWithExt = parts[parts.length - 1]; // abcxyz.jpg
-    const publicId = publicIdWithExt.split(".")[0]; // abcxyz
+    // Step 2️⃣ - Delete image from Supabase storage if it is a Supabase URL
+    if (imageUrl.includes("supabase.co")) {
+      const parts = imageUrl.split("/user_uploads/");
+      if (parts.length > 1) {
+        const filePath = parts[1];
+        const { error: storageError } = await supabase.storage
+          .from("user_uploads")
+          .remove([filePath]);
+        if (storageError) {
+          console.error("❌ Error deleting file from Supabase storage:", storageError.message);
+        }
+      }
+    }
 
-    // Step 3️⃣ - Delete image from Cloudinary
-    await cloudinary.uploader.destroy(publicId);
-
-    // Step 4️⃣ - Update DB and remove image URL
+    // Step 3️⃣ - Update DB and remove image URL
     await pool.query(
       "UPDATE profiles SET image_url = NULL WHERE user_id = $1 RETURNING *",
       [user_id]
     );
 
-    // Step 5️⃣ - Return success response
+    // Step 4️⃣ - Return success response
     res.status(200).json({
-      
       message: "Profile picture removed successfully",
       image_url: null,
     });

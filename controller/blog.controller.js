@@ -1,4 +1,4 @@
-import { v2 as cloudinary } from "cloudinary";
+import { uploadToSupabase } from "../utils/supabaseUpload.js";
 import { pool } from "../config/db.js";
 
 
@@ -8,7 +8,7 @@ export const createArticle = async (req, res) => {
   try {
     const { title, subtitle, content } = req.body;
 
-    const imageUrl = req.file ? req.file.path : null; // Cloudinary image URL
+    const imageUrl = req.file ? await uploadToSupabase(req.file) : null; // Supabase image URL
 
     const result = await pool.query(
       "INSERT INTO articles (title, subtitle, content, cover_image, author_id) VALUES ($1,$2,$3,$4,$5) RETURNING *",
@@ -41,7 +41,7 @@ export const updateArticle = async (req, res) => {
 
     const oldArticle = old.rows[0];
 
-    const newImage = req.file ? req.file.path : oldArticle.cover_image;
+    const newImage = req.file ? await uploadToSupabase(req.file) : oldArticle.cover_image;
 
     const updated = await pool.query(
       `UPDATE articles SET 

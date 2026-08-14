@@ -236,6 +236,20 @@ app.use('/api/linkedin', linkedinRoutes);
 // Google Auth Routes
 app.use('/', googleRoutes);
 
+// Global Error Handler for Multer & general exceptions
+app.use((err, req, res, next) => {
+  if (err.name === "MulterError") {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({ error: "File too large. Maximum size allowed is 5MB." });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  if (err.message && err.message.includes("Unsupported file format")) {
+    return res.status(400).json({ error: err.message });
+  }
+  console.error("❌ Unhandled Error:", err);
+  return res.status(500).json({ error: "Internal Server Error" });
+});
 
 //app.use(express.urlencoded({ extended: true })); 
 const port = process.env.PORT || 3435;
