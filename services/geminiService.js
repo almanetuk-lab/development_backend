@@ -149,10 +149,95 @@ export const extractIntentTags = async (profileOrAboutMe, prompts = null) => {
     aboutMeText = p.about_me || p.about || "";
 
     const parts = [];
-    if (aboutMeText) parts.push(`About Me/Bio: ${aboutMeText}`);
-    if (p.profession) parts.push(`Profession: ${p.profession}`);
-    if (p.relationship_goal) parts.push(`Relationship Goal: ${p.relationship_goal}`);
 
+    // ── Personal Identity ────────────────────────────────────────────────────
+    if (p.first_name || p.last_name) parts.push(`Name: ${[p.first_name, p.last_name].filter(Boolean).join(" ")}`);
+    if (p.age) parts.push(`Age: ${p.age}`);
+    if (p.gender) parts.push(`Gender: ${p.gender}`);
+    if (p.zodiac_sign) parts.push(`Zodiac Sign: ${p.zodiac_sign}`);
+    if (p.marital_status) parts.push(`Marital Status: ${p.marital_status}`);
+    if (p.languages_spoken) parts.push(`Languages Spoken: ${Array.isArray(p.languages_spoken) ? p.languages_spoken.join(", ") : p.languages_spoken}`);
+    if (p.city || p.state || p.country) parts.push(`Location: ${[p.city, p.state, p.country].filter(Boolean).join(", ")}`);
+
+    // ── About Me / Bio ───────────────────────────────────────────────────────
+    if (aboutMeText) parts.push(`About Me/Bio: ${aboutMeText}`);
+
+    // ── Education ────────────────────────────────────────────────────────────
+    if (p.education) parts.push(`Education: ${p.education}`);
+    if (p.education_institution_name) parts.push(`Institution: ${p.education_institution_name}`);
+
+    // ── Professional ─────────────────────────────────────────────────────────
+    if (p.profession) parts.push(`Profession: ${p.profession}`);
+    if (p.company) parts.push(`Company: ${p.company}`);
+    if (p.company_type) parts.push(`Company Type: ${p.company_type}`);
+    if (p.experience) parts.push(`Experience: ${p.experience}`);
+    if (p.position) parts.push(`Position / Role: ${p.position}`);
+    if (p.professional_identity) {
+      const pi = typeof p.professional_identity === "object" ? JSON.stringify(p.professional_identity) : p.professional_identity;
+      if (pi && pi !== "{}") parts.push(`Professional Identity: ${pi}`);
+    }
+    if (p.skills) {
+      const sk = typeof p.skills === "object" ? JSON.stringify(p.skills) : p.skills;
+      if (sk && sk !== "{}") parts.push(`Skills: ${sk}`);
+    }
+
+    // ── Work & Career Rhythm ─────────────────────────────────────────────────
+    if (p.work_environment) parts.push(`Work Environment: ${p.work_environment}`);
+    if (p.work_rhythm) parts.push(`Work Rhythm: ${p.work_rhythm}`);
+    if (p.career_decision_style) parts.push(`Career Decision Style: ${p.career_decision_style}`);
+    if (p.work_demand_response) parts.push(`Work Demand Response: ${p.work_demand_response}`);
+    if (p.interaction_style) parts.push(`Interaction Style: ${p.interaction_style}`);
+
+    // ── Interests, Hobbies & How I Spend Time ────────────────────────────────
+    if (p.interests) {
+      const intr = typeof p.interests === "object" ? JSON.stringify(p.interests) : p.interests;
+      if (intr && intr !== "{}") parts.push(`Interests: ${intr}`);
+    }
+    if (p.hobbies) {
+      const hb = typeof p.hobbies === "object" ? JSON.stringify(p.hobbies) : p.hobbies;
+      if (hb && hb !== "{}") parts.push(`Hobbies: ${hb}`);
+    }
+    if (p.ways_i_spend_time) {
+      const wst = typeof p.ways_i_spend_time === "object" ? JSON.stringify(p.ways_i_spend_time) : p.ways_i_spend_time;
+      if (wst && wst !== "{}") parts.push(`Ways I Spend Time: ${wst}`);
+    }
+
+    // ── Relationship & Partner Preferences ───────────────────────────────────
+    if (p.relationship_goal) parts.push(`Relationship Goal: ${p.relationship_goal}`);
+    if (p.relationship_values) parts.push(`Relationship Values: ${p.relationship_values}`);
+    if (p.relationship_pace) parts.push(`Relationship Pace: ${p.relationship_pace}`);
+    if (p.love_language_affection) parts.push(`Love Language: ${p.love_language_affection}`);
+    if (p.interested_in) parts.push(`Interested In: ${p.interested_in}`);
+    if (p.values_in_others) parts.push(`Values in Others: ${p.values_in_others}`);
+    if (p.self_expression) parts.push(`Self Expression: ${p.self_expression}`);
+    if (p.preference_of_closeness) parts.push(`Preference of Closeness: ${p.preference_of_closeness}`);
+    if (p.approach_to_physical_closeness) parts.push(`Approach to Physical Closeness: ${p.approach_to_physical_closeness}`);
+    if (p.children_preference) parts.push(`Children Preference: ${p.children_preference}`);
+
+    // ── Lifestyle & Personality ──────────────────────────────────────────────
+    if (p.freetime_style) parts.push(`Freetime Style: ${p.freetime_style}`);
+    if (p.health_activity_level) parts.push(`Health & Activity Level: ${p.health_activity_level}`);
+    if (p.pets_preference) parts.push(`Pets Preference: ${p.pets_preference}`);
+    if (p.religious_belief) parts.push(`Religious Belief: ${p.religious_belief}`);
+    if (p.smoking) parts.push(`Smoking: ${p.smoking}`);
+    if (p.drinking) parts.push(`Drinking: ${p.drinking}`);
+
+    // ── Life Rhythms (JSONB) ─────────────────────────────────────────────────
+    const lr = p.life_rhythms_parsed || p.life_rhythms;
+    let parsedLr = null;
+    if (lr) {
+      if (typeof lr === "object") parsedLr = lr;
+      else { try { parsedLr = JSON.parse(lr); } catch { } }
+    }
+    if (parsedLr) {
+      if (parsedLr.emotional_style)      parts.push(`Emotional Style: ${parsedLr.emotional_style}`);
+      if (parsedLr.social_energy)        parts.push(`Social Energy: ${parsedLr.social_energy}`);
+      if (parsedLr.life_pace)            parts.push(`Life Pace: ${parsedLr.life_pace}`);
+      if (parsedLr.work_rhythm)          parts.push(`Work Rhythm (Rhythm): ${parsedLr.work_rhythm}`);
+      if (parsedLr.communication_rhythm) parts.push(`Communication Rhythm: ${parsedLr.communication_rhythm}`);
+    }
+
+    // ── Q&A Prompts ──────────────────────────────────────────────────────────
     const activePrompts = prompts || p.prompts;
     if (activePrompts && typeof activePrompts === "object") {
       const qas = Object.entries(activePrompts)

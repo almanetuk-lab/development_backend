@@ -12,7 +12,7 @@ import {
   hasRecalculatableData,
 } from "../services/vectorRecalculationService.js";
 import { generateSpiderGraphData } from "../services/spiderGraphService.js";
-import { upsertUserVector } from "../services/pineconeService.js";
+
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 
 // 🟢 Update Profile 
@@ -150,21 +150,60 @@ export const updateProfile = async (req, res) => {
       } else {
         try {
           const profileData = {
-            about_me,
-            profession,
-            company,
-            company_type,
+            // Personal Identity
+            first_name,
+            last_name,
+            age,
+            gender,
+            zodiac_sign,
+            marital_status,
+            languages_spoken,
             city,
             state,
             country,
-            relationship_goal,
-            relationship_values,
-            life_rhythms,
+            // Education
+            education,
+            education_institution_name,
+            // Professional
+            profession,
+            company,
+            company_type,
+            experience,
+            position,
+            professional_identity,
+            skills,
+            // Work rhythm
             work_environment,
             work_rhythm,
-            health_activity_level,
-            religious_belief,
+            career_decision_style,
+            work_demand_response,
+            interaction_style,
+            // Interests & hobbies
+            interests,
+            hobbies,
+            ways_i_spend_time,
+            // Relationship & partner preferences
+            relationship_goal,
+            relationship_values,
+            relationship_pace,
+            love_language_affection,
+            interested_in,
+            values_in_others,
+            self_expression,
+            preference_of_closeness,
+            approach_to_physical_closeness,
+            children_preference,
+            // Lifestyle & personality
             freetime_style,
+            health_activity_level,
+            pets_preference,
+            religious_belief,
+            smoking,
+            drinking,
+            // Life rhythms JSONB
+            life_rhythms,
+            // Bio
+            about_me,
           };
 
           // Step 1: NER — Normalized Professional Entities
@@ -261,14 +300,7 @@ export const updateProfile = async (req, res) => {
             ...profileData,
             contextual_tags_parsed: contextual_tags,
             normalized_entities,
-            relationship_pace,
-            love_language_affection,
-            children_preference,
-            interested_in,
-            work_environment,
-            health_activity_level,
-            religious_belief,
-            freetime_style,
+            // interests/hobbies need parsed variants for embeddingService
             interests_parsed: typeof interests === "object" ? interests : null,
             hobbies_parsed: typeof hobbies === "object" ? hobbies : null,
             prompts,
@@ -451,19 +483,6 @@ export const updateProfile = async (req, res) => {
 
     const profileResult = await pool.query(updateProfileQuery, profileValues);
 
-    // 🌲 Pinecone Integration: Dual Storage sync during profile update
-    if (intent_embedding) {
-      try {
-        console.log(`🌲 [Pinecone] Syncing updated vector for user ${userId} during profile update...`);
-        await upsertUserVector(userId, intent_embedding, {
-          profession,
-          city,
-          intent_tags
-        });
-      } catch (pineconeErr) {
-        console.error("❌ [Pinecone] Profile update sync failed (non-blocking):", pineconeErr.message);
-      }
-    }
 
     // Invalidate compatibility cache for this updated profile
     console.log(`🧬 Profile updated. Invalidating compatibility cache for user ID ${userId}...`);

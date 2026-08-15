@@ -105,6 +105,23 @@ export const testConnection = async () => {
       ALTER TABLE profiles ADD COLUMN IF NOT EXISTS confidence_score FLOAT8;
     `);
     console.log("🧬 profiles table psychological AI columns successfully verified.");
+
+    // Dynamic table initialization for security_audit_logs
+    console.log("🛡️ Verifying security_audit_logs table...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS security_audit_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        action VARCHAR(255) NOT NULL,
+        details TEXT DEFAULT NULL,
+        ip_address VARCHAR(45) DEFAULT NULL,
+        user_agent TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_security_audit_logs_user_id ON security_audit_logs (user_id);
+      CREATE INDEX IF NOT EXISTS idx_security_audit_logs_action ON security_audit_logs (action);
+    `);
+    console.log("🛡️ security_audit_logs table and indexes verified.");
   } catch (err) {
     console.error("❌ Database connection error:", err.message);
   }

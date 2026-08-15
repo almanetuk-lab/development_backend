@@ -1,5 +1,7 @@
 import express from "express";
 import { createCheckoutSession, getUserPayments, stripeWebhook, verifyCheckoutSession } from "../controller/paymentController.js";
+import { validateAccessToken } from "../middleware/verfiytoken.js";
+import { authRateLimiter } from "../middleware/rateLimiter.js";
 const router = express.Router();
 
 // ⚠️ ONLY webhook uses express.raw
@@ -9,10 +11,11 @@ router.post(
   stripeWebhook
 );  // Stripe Webhook
 
-// Normal JSON for the rest
-router.post("/create-checkout-session", createCheckoutSession); // Create Checkout Session
-router.post("/verify-session", verifyCheckoutSession); // Verify Checkout Session & Activate Plan
+// Normal JSON for the rest — protected by auth & rate-limiting
+router.post("/create-checkout-session", authRateLimiter, validateAccessToken, createCheckoutSession);
+router.post("/verify-session", validateAccessToken, verifyCheckoutSession);
 
-router.get("/:user_id", getUserPayments); // Get Payments by User ID
+// Payment history — JWT identity is verified and compared to url parameter to prevent IDOR
+router.get("/:user_id", validateAccessToken, getUserPayments);
 
 export default router;

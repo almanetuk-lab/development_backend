@@ -13,7 +13,6 @@
   "license": "ISC",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
-    "@pinecone-database/pinecone": "^7.2.0",
     "@supabase/supabase-js": "^2.78.0",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
@@ -23,8 +22,10 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.6.2",
     "express-session": "^1.18.2",
     "google-auth-library": "^11.0.2",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "multer-storage-cloudinary": "^4.0.0",
