@@ -50,6 +50,7 @@ import matchRoutes from './routes/matchRoutes.js';
 import healthRoutes from "./routes/healthRoutes.js";
 import digitalTwinRoutes from "./routes/digitalTwinRoutes.js";
 import handshakeRoutes from "./routes/handshakeRoutes.js";
+import aiAgentRoutes from "./routes/aiAgentRoutes.js";
 import { verifySentimentSchema } from "./utils/schemaValidator.js";
 dotenv.config();
 
@@ -195,6 +196,7 @@ app.use("/api/notifications",notificationRoutes); // new route for fetching noti
 app.use("/api/health", healthRoutes);
 app.use("/api/twin", digitalTwinRoutes); // Digital Twin route
 app.use("/api/handshake", handshakeRoutes); // Structural Handshake Protocol route
+app.use("/api/ai-agent", aiAgentRoutes); // AI Chat Agent config route
 
 
 // Payment routes 
