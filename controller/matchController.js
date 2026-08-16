@@ -3,7 +3,7 @@ import { generateAICompatibility, extractIntentTags, enrichContextualMetadata, v
 import { buildSemanticProfileText, generateEmbedding } from "../services/embeddingService.js";
 import { extractProfessionalEntities } from "../services/entityRecognitionService.js";
 import { isSentimentAuditEnabled } from "../config/sentimentConfig.js";
-import { searchSimilarProfiles } from "../services/pineconeService.js";
+// Vector search handled directly via pgvector (see getSuggestions)
 import {
   analyzeSentimentAndTone,
   isDistressTone,
@@ -546,79 +546,35 @@ export const getSuggestions = async (req, res) => {
       console.warn("⚠️ Refinement session lookup failed (non-fatal):", sessionErr.message);
     }
 
-    // Parse search vector to array of numbers for Pinecone
-    let parsedSearchVector = null;
-    if (searchVector) {
-      if (typeof searchVector === "string") {
-        parsedSearchVector = searchVector.replace(/[\[\]]/g, "").split(",").map(Number);
-      } else if (Array.isArray(searchVector)) {
-        parsedSearchVector = searchVector;
-      }
-    }
-
     let matches = [];
-    let pineconeSuccess = false;
-    let pineconeScoresMap = {}; // userId -> similarity score
+    let vectorScoresMap = {}; // userId -> cosine similarity score (0-1)
 
     // Fetch current user's profile for compatibility calculations
     const currentUserProfile = await fetchFullProfile(userId);
 
-    // Try to search via Pinecone
-    if (currentUserProfile && parsedSearchVector) {
-      try {
-        console.log(`🌲 [Pinecone] Executing similarity query for user ${userId}...`);
-        const pineconeResults = await searchSimilarProfiles(parsedSearchVector, 50);
+    // pgvector cosine similarity search (primary and only vector search)
+    console.log(`🐘 [pgvector] Executing cosine similarity search for user ${userId}...`);
+    const matchQuery = `
+      SELECT
+          *,
+          intent_embedding <=> $1 AS distance
+      FROM profiles
+      WHERE
+          user_id != $2
+          AND intent_embedding IS NOT NULL
+          AND (intent_embedding <=> $1) < 0.30
+      ORDER BY distance ASC
+      LIMIT 50;
+    `;
+    const matchResult = await pool.query(matchQuery, [searchVector, userId]);
+    matches = matchResult.rows;
+    console.log(`🐘 [pgvector] Found ${matches.length} similar profiles.`);
 
-        if (pineconeResults && pineconeResults.length > 0) {
-          // Filter out current user
-          const filteredMatches = pineconeResults.filter(m => String(m.id) !== String(userId));
-          const matchedUserIds = filteredMatches.map(m => Number(m.id));
-
-          if (matchedUserIds.length > 0) {
-            filteredMatches.forEach(m => {
-              pineconeScoresMap[String(m.id)] = m.score !== undefined && m.score !== null ? m.score : 0.70;
-            });
-
-            // Fetch details from PostgreSQL
-            const fetchQuery = `
-              SELECT * FROM profiles
-              WHERE user_id = ANY($1::int[]);
-            `;
-            const fetchResult = await pool.query(fetchQuery, [matchedUserIds]);
-            matches = fetchResult.rows;
-            pineconeSuccess = true;
-            console.log(`🌲 [Pinecone] Similarity search fetched ${matches.length} profiles from DB.`);
-          }
-        }
-      } catch (pineconeErr) {
-        console.error("❌ [Pinecone] Search failed, falling back to pgvector (Supabase):", pineconeErr.message);
-      }
-    }
-
-    // Fallback to pgvector if Pinecone is not configured or failed/returned nothing
-    if (!pineconeSuccess) {
-      console.log("🐘 Falling back to Supabase pgvector search...");
-      const matchQuery = `
-        SELECT
-            *,
-            intent_embedding <=> $1 AS distance
-        FROM profiles
-        WHERE
-            user_id != $2
-            AND intent_embedding IS NOT NULL
-            AND (intent_embedding <=> $1) < 0.30
-        ORDER BY distance ASC
-        LIMIT 25;
-      `;
-      const matchResult = await pool.query(matchQuery, [searchVector, userId]);
-      matches = matchResult.rows;
-
-      // Populate pineconeScoresMap using distance fallback: similarity = 1 - distance
-      matches.forEach(row => {
-        const distanceVal = Number(row.distance);
-        pineconeScoresMap[String(row.user_id)] = 1 - distanceVal;
-      });
-    }
+    // Populate vectorScoresMap: similarity = 1 - cosine_distance
+    matches.forEach(row => {
+      const distanceVal = Number(row.distance);
+      vectorScoresMap[String(row.user_id)] = 1 - distanceVal;
+    });
 
     // Populate prompts for all matches to ensure calculateLocalCompatibilityScores works correctly
     if (matches.length > 0) {
@@ -689,8 +645,8 @@ export const getSuggestions = async (req, res) => {
       const compositeClarity = Math.min(1, (rawConf > 0 ? rawConf * 0.80 : 0.40) + completionBonus);
 
       // --- HYBRID RANKING COMPUTATION ---
-      // Get the Pinecone similarity score (0 to 100)
-      const pineconeSimilarity = Math.round((pineconeScoresMap[String(row.user_id)] || 0.70) * 100);
+      // Get the pgvector cosine similarity score (0 to 100)
+      const vectorSimilarity = Math.round((vectorScoresMap[String(row.user_id)] || 0.70) * 100);
 
       let compMatrix = 70;
       let sentimentScore = 70;
@@ -730,9 +686,9 @@ export const getSuggestions = async (req, res) => {
         }
       }
 
-      // Final Match Score = 40% Pinecone Similarity + 35% Compatibility Matrix + 15% Sentiment Score + 10% Lifestyle Match
+      // Final Match Score = 40% Vector Similarity + 35% Compatibility Matrix + 15% Sentiment Score + 10% Lifestyle Match
       const finalMatchScore = Math.round(
-        (0.40 * pineconeSimilarity) +
+        (0.40 * vectorSimilarity) +
         (0.35 * compMatrix) +
         (0.15 * sentimentScore) +
         (0.10 * lifestyleScore)
@@ -746,7 +702,7 @@ export const getSuggestions = async (req, res) => {
         about_me: row.about_me || "",
         image_url: row.image_url || "",
         city: row.city || "Location not set",
-        distance: Number(((100 - pineconeSimilarity) / 100).toFixed(4)),
+        distance: Number(((100 - vectorSimilarity) / 100).toFixed(4)),
         compatibility_score: finalMatchScore,
         intent_tags: parsedTags,
         contextual_tags: parsedContextualTags,
@@ -755,7 +711,7 @@ export const getSuggestions = async (req, res) => {
         // Sentiment data from candidate profile (used for boost logic below)
         _candidate_sentiment: candidateSentiment,
         local_scores: {
-          vector_similarity: pineconeSimilarity,
+          vector_similarity: vectorSimilarity,
           relationship_expectations: compMatrix,
           emotional_tone_match: sentimentScore,
           lifestyle_rhythm: lifestyleScore,

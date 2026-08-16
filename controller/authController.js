@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import { sendNotification } from "../server.js";
 import { sendEmail } from "../services/sendEmail.js";
-import { upsertUserVector } from "../services/pineconeService.js";
+
 //import { sendEmail } from "../emailService.js";
 
 dotenv.config();
@@ -232,19 +232,6 @@ export const registerUser = async (req, res) => {
     console.log("✅ Registration Profile SUCCESS. DB SAVE SUCCESS: true. intent_tags:", profileResult.rows[0].intent_tags, "contextual_tags:", profileResult.rows[0].contextual_tags, "confidence_score:", profileResult.rows[0].confidence_score);
     console.log("==================================================");
 
-    // 🌲 Pinecone Integration: Dual Storage sync during registration
-    if (intent_embedding) {
-      try {
-        console.log(`🌲 [Pinecone] Syncing initial vector for user ${user_id} during registration...`);
-        await upsertUserVector(user_id, intent_embedding, {
-          profession,
-          city: null, // city is not set during initial registration
-          intent_tags
-        });
-      } catch (pineconeErr) {
-        console.error("❌ [Pinecone] Registration sync failed (non-blocking):", pineconeErr.message);
-      }
-    }
 
     const user = {
       email: result.rows[0].email,
@@ -414,5 +401,70 @@ export const resetPassword = async (req, res) => {
   } catch (error) {
     console.error("Reset password error:", error);
     res.status(400).json({ error: "Invalid or expired token." });
+  }
+};
+
+// Change Password (Authenticated)
+export const changePassword = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Current password and new password are required." });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "New password must be at least 6 characters long." });
+    }
+
+    // 1. Fetch user password hash
+    const userResult = await pool.query(
+      "SELECT password, email FROM users WHERE id = $1",
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    const user = userResult.rows[0];
+
+    // 2. Validate current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: "Incorrect current password." });
+    }
+
+    // 3. Hash and save new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [
+      hashedPassword,
+      userId,
+    ]);
+
+    // 4. Log security event for GDPR/security compliance
+    try {
+      const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
+      const userAgent = req.headers["user-agent"] || "unknown";
+      await pool.query(
+        `INSERT INTO security_audit_logs (user_id, action_type, ip_address, user_agent, details)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          userId,
+          "PASSWORD_CHANGE",
+          ip,
+          userAgent,
+          JSON.stringify({ message: "Password updated successfully by user" }),
+        ]
+      );
+    } catch (logErr) {
+      console.error("Failed to log security audit event:", logErr);
+    }
+
+    res.json({ success: true, message: "Password updated successfully." });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };

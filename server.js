@@ -6,6 +6,8 @@ import http from "http";
 import { Server } from "socket.io";
 import { pool } from "./config/db.js"; // ✅ Use your existing DB connection
 import bodyParser from 'body-parser';
+import helmet from "helmet";
+import { authRateLimiter, globalRateLimiter, paymentRateLimiter } from "./middleware/rateLimiter.js";
 
 // ✅ Import routes
 import authRoutes from "./routes/authRoutes.js";
@@ -42,6 +44,7 @@ import planRoutes from "./routes/planRoutes.js";
 // Load environment variables
 import reportRoutes from "./routes/reportRoutes.js";
 import adminReportRoutes from "./routes/adminreportRoutes.js";
+import privacyRoutes from "./routes/privacyRoutes.js";
 //import { create } from "domain";
 
 import linkedinRoutes from './routes/linkedinRoutes.js';
@@ -50,19 +53,56 @@ import matchRoutes from './routes/matchRoutes.js';
 import healthRoutes from "./routes/healthRoutes.js";
 import digitalTwinRoutes from "./routes/digitalTwinRoutes.js";
 import handshakeRoutes from "./routes/handshakeRoutes.js";
+import aiAgentRoutes from "./routes/aiAgentRoutes.js";
 import { verifySentimentSchema } from "./utils/schemaValidator.js";
 dotenv.config();
 
 const app = express();
-testConnection();
-verifySentimentSchema();
+app.disable("x-powered-by");
 
-// -------------------- Stripe Webhook Route ------------------------
+// ---- Strict Security Headers (Helmet) ----
+app.use(helmet({
+  // Strict Content-Security-Policy — only allow resources from trusted origins
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://js.stripe.com", "https://accounts.google.com"],
+      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://intentionalconnections.app"],
+      imgSrc: ["'self'", "data:", "https://*.supabase.co"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Required for Stripe iframes
+  hsts: {
+    maxAge: 31536000, // 1 year in seconds
+    includeSubDomains: true,
+    preload: true,
+  },
+}));
+
+// -------------------- Stripe Webhook Route (Exempt from Rate Limiting) ------------------------
 app.post(
   "/payments/webhook",
   express.raw({ type: "application/json" }),
   stripeWebhook
 );
+
+// Apply rate limiters
+app.use("/api/register", authRateLimiter);
+app.use("/api/login", authRateLimiter);
+app.use("/api/forgotpassword", authRateLimiter);
+app.use("/api/reset-password", authRateLimiter);
+app.use("/payments/create-checkout-session", paymentRateLimiter);
+
+// Protect ALL other server endpoints globally against DDoS attacks
+app.use(globalRateLimiter);
+
+testConnection();
+verifySentimentSchema();
 
 // Middleware
 app.use(express.json());
@@ -107,13 +147,13 @@ const corsOptions = {
 
     const normalized = origin.toLowerCase().replace(/\/+$/, '');
     const origins = getAllowedOrigins().map(o => o.toLowerCase());
+    const isProd = process.env.NODE_ENV === "production";
 
     if (
       origins.includes(normalized) ||
       normalized.includes('onrender.com') ||
       normalized.includes('vercel.app') ||
-      normalized.includes('localhost') ||
-      normalized.includes('127.0.0.1')
+      (!isProd && (normalized.includes('localhost') || normalized.includes('127.0.0.1')))
     ) {
       return callback(null, true);
     }
@@ -195,6 +235,7 @@ app.use("/api/notifications",notificationRoutes); // new route for fetching noti
 app.use("/api/health", healthRoutes);
 app.use("/api/twin", digitalTwinRoutes); // Digital Twin route
 app.use("/api/handshake", handshakeRoutes); // Structural Handshake Protocol route
+app.use("/api/ai-agent", aiAgentRoutes); // AI Chat Agent config route
 
 
 // Payment routes 
@@ -202,6 +243,7 @@ app.use("/payments", paymentRoutes);
 
 app.use("/api", uploadRoutes);
 app.use("/",chatRoutes); // new chat routes
+app.use("/", privacyRoutes); // GDPR Privacy & Data routes
 
 //Configuration Routes:-
 app.use("/api/admin/configurations", configRoutes);
@@ -236,6 +278,20 @@ app.use('/api/linkedin', linkedinRoutes);
 // Google Auth Routes
 app.use('/', googleRoutes);
 
+// Global Error Handler for Multer & general exceptions
+app.use((err, req, res, next) => {
+  if (err.name === "MulterError") {
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({ error: "File too large. Maximum size allowed is 5MB." });
+    }
+    return res.status(400).json({ error: err.message });
+  }
+  if (err.message && err.message.includes("Unsupported file format")) {
+    return res.status(400).json({ error: err.message });
+  }
+  console.error("❌ Unhandled Error:", err);
+  return res.status(500).json({ error: "Internal Server Error" });
+});
 
 //app.use(express.urlencoded({ extended: true })); 
 const port = process.env.PORT || 3435;

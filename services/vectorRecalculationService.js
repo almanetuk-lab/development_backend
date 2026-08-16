@@ -35,7 +35,6 @@ import { extractProfessionalEntities } from "./entityRecognitionService.js";
 import { analyzeSentimentAndTone } from "./sentimentAuditService.js";
 import { isSentimentAuditEnabled } from "../config/sentimentConfig.js";
 import { generateSpiderGraphData } from "./spiderGraphService.js";
-import { upsertUserVector } from "./pineconeService.js";
 
 // ── Deduplication Guard ──────────────────────────────────────────────────────
 // Stores the user IDs that are currently mid-recalculation.
@@ -262,23 +261,62 @@ export const recalculateUserVector = async (
       console.log(`📥 [VectorRecalc] Step 1: Using inline profile data (skipping DB fetch)`);
     }
 
-    // Build compact profile data object for all AI services
+    // Build complete profile data object for all AI services
     const profileData = {
-      about_me: profile.about_me,
-      profession: profile.profession,
-      company: profile.company,
-      company_type: profile.company_type,
+      // Personal Identity
+      first_name: profile.first_name,
+      last_name: profile.last_name,
+      age: profile.age,
+      gender: profile.gender,
+      zodiac_sign: profile.zodiac_sign,
+      marital_status: profile.marital_status,
+      languages_spoken: profile.languages_spoken,
       city: profile.city,
       state: profile.state,
       country: profile.country,
-      relationship_goal: profile.relationship_goal,
-      relationship_values: profile.relationship_values,
-      life_rhythms: profile.life_rhythms,
+      // Education
+      education: profile.education,
+      education_institution_name: profile.education_institution_name,
+      // Professional
+      profession: profile.profession,
+      company: profile.company,
+      company_type: profile.company_type,
+      experience: profile.experience,
+      position: profile.position,
+      professional_identity: profile.professional_identity,
+      skills: profile.skills,
+      // Work rhythm
       work_environment: profile.work_environment,
       work_rhythm: profile.work_rhythm,
-      health_activity_level: profile.health_activity_level,
-      religious_belief: profile.religious_belief,
+      career_decision_style: profile.career_decision_style,
+      work_demand_response: profile.work_demand_response,
+      interaction_style: profile.interaction_style,
+      // Interests & hobbies
+      interests: profile.interests,
+      hobbies: profile.hobbies,
+      ways_i_spend_time: profile.ways_i_spend_time,
+      // Relationship & partner preferences
+      relationship_goal: profile.relationship_goal,
+      relationship_values: profile.relationship_values,
+      relationship_pace: profile.relationship_pace,
+      love_language_affection: profile.love_language_affection,
+      interested_in: profile.interested_in,
+      values_in_others: profile.values_in_others,
+      self_expression: profile.self_expression,
+      preference_of_closeness: profile.preference_of_closeness,
+      approach_to_physical_closeness: profile.approach_to_physical_closeness,
+      children_preference: profile.children_preference,
+      // Lifestyle & personality
       freetime_style: profile.freetime_style,
+      health_activity_level: profile.health_activity_level,
+      pets_preference: profile.pets_preference,
+      religious_belief: profile.religious_belief,
+      smoking: profile.smoking,
+      drinking: profile.drinking,
+      // Life rhythms JSONB
+      life_rhythms: profile.life_rhythms,
+      // Bio
+      about_me: profile.about_me,
     };
 
     // ── Step 2: NER — Normalized Professional Entities ────────────────────────
@@ -344,15 +382,9 @@ export const recalculateUserVector = async (
         ...profileData,
         contextual_tags_parsed: contextual_tags,
         normalized_entities,
-        relationship_pace: profile.relationship_pace,
-        love_language_affection: profile.love_language_affection,
-        children_preference: profile.children_preference,
-        interested_in: profile.interested_in,
-        health_activity_level: profile.health_activity_level,
-        religious_belief: profile.religious_belief,
-        freetime_style: profile.freetime_style,
-        interests_parsed: typeof profile.interests === "object" ? profile.interests : null,
-        hobbies_parsed: typeof profile.hobbies === "object" ? profile.hobbies : null,
+        // interests/hobbies from profileData need parsed variants for embeddingService
+        interests_parsed: typeof profileData.interests === "object" ? profileData.interests : null,
+        hobbies_parsed: typeof profileData.hobbies === "object" ? profileData.hobbies : null,
         prompts,
       };
 
@@ -423,19 +455,6 @@ export const recalculateUserVector = async (
 
     const updateResult = await pool.query(updateQuery, updateValues);
 
-    // 🌲 Pinecone Integration: Dual Storage sync during vector recalculation
-    if (intent_embedding) {
-      try {
-        console.log(`🌲 [Pinecone] Syncing recalculated vector for user ${userId}...`);
-        await upsertUserVector(userId, intent_embedding, {
-          profession: profileData.profession,
-          city: profileData.city,
-          intent_tags: intent_tags
-        });
-      } catch (pineconeErr) {
-        console.error("❌ [Pinecone] Vector recalculation sync failed (non-blocking):", pineconeErr.message);
-      }
-    }
 
     if (!updateResult.rows.length) {
       console.error(`❌ [VectorRecalc] DB UPDATE returned no rows for user ${uid}`);

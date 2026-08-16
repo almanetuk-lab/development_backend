@@ -332,9 +332,10 @@ import {
   searchUsers,
   getRecentChats as dbGetRecentChats,
 } from "../config/db.js";
-import cloudinary from "../config/cloudinaryConfig.js";
+import { uploadToSupabase } from "../utils/supabaseUpload.js";
 import { createNotification } from "./notificationController.js";
 import { trackMessageActivity } from "../services/trustService.js";
+import { maybeGenerateAiReply } from "../services/aiAgentService.js";
 
 dotenv.config();
 
@@ -350,26 +351,12 @@ export const uploadFile = async (req, res) => {
       return res.status(400).json({ error: "No file received" });
     }
 
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder: "chat_uploads",
-        resource_type: "auto",
-        public_id: uuidv4(),
-      },
-      (error, uploadResult) => {
-        if (error) {
-          console.error("Cloudinary error:", error);
-          return res.status(500).json({ error: "Upload failed" });
-        }
+    const publicUrl = await uploadToSupabase(req.file);
 
-        return res.json({
-          message: "File uploaded successfully",
-          url: uploadResult.secure_url,
-        });
-      },
-    );
-
-    stream.end(req.file.buffer);
+    return res.json({
+      message: "File uploaded successfully",
+      url: publicUrl,
+    });
   } catch (err) {
     console.error("Upload Error:", err);
     return res.status(500).json({ error: "Upload failed" });
@@ -455,6 +442,7 @@ export const getMessagesForUser = async (req, res) => {
         m.attachment_url,
         m.created_at,
         m.is_read,
+        m.is_ai_generated,
 
         sender_profile.image_url   AS sender_profile_image_url,
         receiver_profile.image_url AS receiver_profile_image_url
@@ -555,8 +543,8 @@ export const getAllMessages = async (req, res) => {
     // ✅ SAVE MESSAGE
     const { rows } = await pool.query(
       `
-      INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read)
-      VALUES ($1, $2, $3, $4, FALSE)
+      INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
+      VALUES ($1, $2, $3, $4, FALSE, FALSE)
       RETURNING *
       `,
       [sender_id, receiver_id, content, attachment_url],
@@ -609,6 +597,9 @@ export const getAllMessages = async (req, res) => {
     if (receiverSocketId && notifResult.rows.length > 0) {
       io.to(receiverSocketId).emit("new_notification", notifResult.rows[0]);
     }
+
+    // Fire-and-forget AI auto-reply for the receiver (async; do not await)
+    maybeGenerateAiReply(savedMessage).catch(() => {});
 
     return res.status(201).json(savedMessage);
   } catch (error) {

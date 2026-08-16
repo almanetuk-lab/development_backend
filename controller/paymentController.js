@@ -117,6 +117,12 @@ export const createCheckoutSession = async (req, res) => {
       return res.status(400).json({ message: "Missing plan or user_id" });
     }
 
+    // ✅ SECURITY: Enforce ownership — the authenticated user can only create
+    // a checkout session for their own account. Prevents privilege escalation.
+    if (String(req.user?.id) !== String(user_id)) {
+      return res.status(403).json({ message: "Forbidden: user_id mismatch." });
+    }
+
     const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/+$/, "");
 
     const session = await stripe.checkout.sessions.create({
@@ -225,6 +231,17 @@ export const stripeWebhook = async (req, res) => {
 ====================================================== */
 export const getUserPayments = async (req, res) => {
   const { user_id } = req.params;
+  const authenticatedUserId = req.user?.id;
+
+  if (!authenticatedUserId) {
+    return res.status(401).json({ message: "Unauthorized: no valid session." });
+  }
+
+  // ✅ SECURITY: Prevent Insecure Direct Object Reference (IDOR) attacks by ensuring
+  // that the authenticated user can only view their own payment history.
+  if (String(authenticatedUserId) !== String(user_id)) {
+    return res.status(403).json({ message: "Forbidden: You cannot access another user's payment history." });
+  }
 
   try {
     const result = await pool.query(
@@ -234,7 +251,7 @@ export const getUserPayments = async (req, res) => {
       WHERE user_id=$1
       ORDER BY created_at DESC
       `,
-      [user_id]
+      [authenticatedUserId]
     );
 
     res.json(result.rows);
