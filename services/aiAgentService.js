@@ -2,8 +2,16 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { io, onlineUsers } from "../server.js";
+import { generateAndCacheCompatibility } from "../controller/matchController.js";
 
 dotenv.config();
+
+// ─────────────────────────────────────────────
+// Comfortability thresholds
+// ─────────────────────────────────────────────
+const COMFORT_OVERALL_THRESHOLD        = 70;
+const COMFORT_COMMUNICATION_THRESHOLD  = 65;
+const COMFORT_EMOTIONAL_THRESHOLD      = 65;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -61,6 +69,69 @@ export const receiverHasActivePlan = async (userId) => {
   } catch (err) {
     console.error(`❌ [AIAgentService] receiverHasActivePlan(${userId}):`, err.message);
     return false;
+  }
+};
+
+// ─────────────────────────────────────────────
+// Comfortability check
+// Reads the cached compatibility record for a sender-receiver pair and
+// verifies all three score thresholds.
+// Fail-closed on cache miss: AI is blocked AND a background calculation is
+// triggered so future messages will have a score to check against.
+// Fail-open on DB error only (never block AI due to infrastructure failure).
+// ─────────────────────────────────────────────
+
+export const checkProfileComfortability = async (senderId, receiverId) => {
+  try {
+    // Pair must always be stored as (min, max)
+    const userA = Math.min(Number(senderId), Number(receiverId));
+    const userB = Math.max(Number(senderId), Number(receiverId));
+
+    const { rows } = await pool.query(
+      `SELECT
+         overall_score,
+         (compatibility_data -> 'scores' ->> 'communication_compatibility')::int AS communication_score,
+         (compatibility_data -> 'scores' ->> 'emotional_compatibility')::int     AS emotional_score
+       FROM profile_compatibilities
+       WHERE user_a_id = $1
+         AND user_b_id = $2
+         AND updated_at > NOW() - INTERVAL '7 days'
+       LIMIT 1`,
+      [userA, userB]
+    );
+
+    // ── Cache miss → fail-closed + trigger background calculation ───────────
+    if (rows.length === 0) {
+      console.log(
+        `🤖 [AIAgentService] No compatibility cache for pair (${userA}, ${userB}) — AI BLOCKED. Triggering background calculation...`
+      );
+      // Fire-and-forget: compute and cache so next message has a score
+      generateAndCacheCompatibility(senderId, receiverId).catch((err) => {
+        console.error(`❌ [AIAgentService] Background compat calc failed for (${userA}, ${userB}):`, err.message);
+      });
+      return false; // block AI this time
+    }
+
+    const { overall_score, communication_score, emotional_score } = rows[0];
+
+    const overallOk       = (overall_score       ?? 0) >= COMFORT_OVERALL_THRESHOLD;
+    const communicationOk = (communication_score ?? 0) >= COMFORT_COMMUNICATION_THRESHOLD;
+    const emotionalOk     = (emotional_score     ?? 0) >= COMFORT_EMOTIONAL_THRESHOLD;
+
+    const comfortable = overallOk && communicationOk && emotionalOk;
+
+    console.log(
+      `🤖 [AIAgentService] Comfortability (${senderId}→${receiverId}): ` +
+      `overall=${overall_score}(${overallOk ? '✅' : '❌'}) ` +
+      `comm=${communication_score}(${communicationOk ? '✅' : '❌'}) ` +
+      `emo=${emotional_score}(${emotionalOk ? '✅' : '❌'}) ` +
+      `→ ${comfortable ? 'ALLOW' : 'BLOCK'}`
+    );
+
+    return comfortable;
+  } catch (err) {
+    console.error(`❌ [AIAgentService] checkProfileComfortability error:`, err.message);
+    return true; // fail-open on DB error — never block AI due to infrastructure failure
   }
 };
 
@@ -287,6 +358,13 @@ export const maybeGenerateAiReply = async (humanMessage) => {
     const hasPlan = await receiverHasActivePlan(receiverId);
     if (!hasPlan) {
       console.log(`🤖 [AIAgentService] No active plan for receiver ${receiverId} — skipping AI reply`);
+      return;
+    }
+
+    // [GUARD 5] Comfortability check — sender profile must pass all three thresholds
+    const isComfortable = await checkProfileComfortability(senderId, receiverId);
+    if (!isComfortable) {
+      console.log(`🤖 [AIAgentService] Comfortability FAILED for sender ${senderId} → receiver ${receiverId}. AI silent.`);
       return;
     }
 
