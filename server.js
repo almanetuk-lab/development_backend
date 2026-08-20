@@ -15,11 +15,11 @@ import profileRoutes from "./routes/profileRoutes.js";
 // Admin imports
 import adminRoutes from "./routes/adminRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
-import notificationRoutes from "./routes/notificationRoutes.js"; 
-import uploadRoutes from "./routes/uploadRoutes.js"; 
+import notificationRoutes from "./routes/notificationRoutes.js";
+import uploadRoutes from "./routes/uploadRoutes.js";
 import { testConnection } from "./config/db.js";
 // Chat imports
-import chatRoutes from "./routes/chatRoutes.js"; 
+import chatRoutes from "./routes/chatRoutes.js";
 import cartRoutes from "./routes/cart.js";
 // Plans imports
 import customerPlansRoutes from "./routes/customerPlans.js";
@@ -36,7 +36,7 @@ import blogRoutes from "./routes/blog.routes.js";
 import userProfileRoute from "./routes/usersRoute.js";
 import recentActivitiesRoute from "./routes/recentAtivitiesRoute.js";
 
-import adminConfigRoutes from "./routes/adminConfigRoutes.js";  
+import adminConfigRoutes from "./routes/adminConfigRoutes.js";
 //Importing configuration route
 import configRoutes from "./routes/configRoutes.js";
 
@@ -121,6 +121,7 @@ const staticAllowedOrigins = [
   "http://127.0.0.1:5174",
   "http://127.0.0.1:3000",
   "https://intentionalconnections.app",
+  "https://development-frontend-w65e.onrender.com",
   "https://frontend1-7fsg.onrender.com",
   "https://intentional-connection.onrender.com",
   "https://development-frontend-livid.vercel.app"
@@ -149,8 +150,38 @@ const corsOptions = {
     const origins = getAllowedOrigins().map(o => o.toLowerCase());
     const isProd = process.env.NODE_ENV === "production";
 
+    // 1. Direct match
+    if (origins.includes(normalized)) {
+      return callback(null, true);
+    }
+
+    // 2. Subdomain wildcard match for custom allowed origins (e.g. www.intentionalconnections.app)
+    try {
+      const originUrl = new URL(normalized);
+      const originHostname = originUrl.hostname;
+
+      const isAllowedSubdomain = origins.some(allowedOrigin => {
+        try {
+          const allowedUrl = new URL(allowedOrigin);
+          const allowedHostname = allowedUrl.hostname;
+          return (
+            originHostname === allowedHostname ||
+            originHostname.endsWith('.' + allowedHostname)
+          );
+        } catch (e) {
+          return false;
+        }
+      });
+
+      if (isAllowedSubdomain) {
+        return callback(null, true);
+      }
+    } catch (e) {
+      // Ignore URL parsing errors
+    }
+
+    // 3. Platform specific matches (Render / Vercel / localhost in non-prod)
     if (
-      origins.includes(normalized) ||
       normalized.includes('onrender.com') ||
       normalized.includes('vercel.app') ||
       (!isProd && (normalized.includes('localhost') || normalized.includes('127.0.0.1')))
@@ -173,7 +204,7 @@ const io = new Server(server, {
   cors: corsOptions,
   transports: ["websocket", "polling"],
 });
-  console.log("✅ Socket connected");
+console.log("✅ Socket connected");
 //  Track online users (userId → socketId)
 const onlineUsers = new Map();
 
@@ -185,7 +216,7 @@ io.on("connection", (socket) => {
     onlineUsers.set(String(userId), socket.id);
     console.log(` User ${userId} registered for notifications`);
   });
-   //console.log('Socket connected', socket.id);
+  //console.log('Socket connected', socket.id);
 
   socket.on("disconnect", () => {
     for (const [userId, socketId] of onlineUsers.entries()) {
@@ -231,7 +262,7 @@ app.use("/", adminRoutes);
 app.use("/", searchRoutes);
 app.use("/", matchRoutes);
 
-app.use("/api/notifications",notificationRoutes); // new route for fetching notifications
+app.use("/api/notifications", notificationRoutes); // new route for fetching notifications
 app.use("/api/health", healthRoutes);
 app.use("/api/twin", digitalTwinRoutes); // Digital Twin route
 app.use("/api/handshake", handshakeRoutes); // Structural Handshake Protocol route
@@ -242,7 +273,7 @@ app.use("/api/ai-agent", aiAgentRoutes); // AI Chat Agent config route
 app.use("/payments", paymentRoutes);
 
 app.use("/api", uploadRoutes);
-app.use("/",chatRoutes); // new chat routes
+app.use("/", chatRoutes); // new chat routes
 app.use("/", privacyRoutes); // GDPR Privacy & Data routes
 
 //Configuration Routes:-
@@ -271,7 +302,7 @@ app.use("/api", planRoutes);
 // Admin Reports Route
 app.use("/api/admin/reports", reportRoutes);
 
-app.use("/api/admin/users/handle",adminReportRoutes);
+app.use("/api/admin/users/handle", adminReportRoutes);
 // LinkedIn Auth Routes
 app.use('/api/linkedin', linkedinRoutes);
 
