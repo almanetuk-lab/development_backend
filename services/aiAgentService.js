@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { io, onlineUsers } from "../server.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
+import { createNotification } from "../controller/notificationController.js";
 
 dotenv.config();
 
@@ -365,6 +366,59 @@ export const maybeGenerateAiReply = async (humanMessage) => {
     const isComfortable = await checkProfileComfortability(senderId, receiverId);
     if (!isComfortable) {
       console.log(`🤖 [AIAgentService] Comfortability FAILED for sender ${senderId} → receiver ${receiverId}. AI silent.`);
+
+      // ── Fetch both users' display names for notification messages ──────────
+      const [senderNameResult, receiverNameResult] = await Promise.all([
+        pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [senderId]),
+        pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [receiverId]),
+      ]);
+      const senderName   = senderNameResult.rows.length
+        ? `${senderNameResult.rows[0].first_name} ${senderNameResult.rows[0].last_name ?? ""}`.trim()
+        : `User ${senderId}`;
+      const receiverName = receiverNameResult.rows.length
+        ? `${receiverNameResult.rows[0].first_name} ${receiverNameResult.rows[0].last_name ?? ""}`.trim()
+        : `User ${receiverId}`;
+
+      // ── Persist bell-icon notifications for BOTH parties ─────────────────
+      // Sender gets notified that AI won't reply in their chat with receiver
+      // Receiver gets notified that AI won't reply in their chat with sender
+      const [senderNotif, receiverNotif] = await Promise.all([
+        createNotification(
+          senderId,
+          "⚠️ Match Incompatibility",
+          `Your AI agent will not reply in your conversation with ${receiverName} due to low compatibility scores.`,
+          "incompatible_match",
+          receiverId,
+          receiverName,
+          "ai_agent"
+        ),
+        createNotification(
+          receiverId,
+          "⚠️ Match Incompatibility",
+          `Your AI agent will not reply in your conversation with ${senderName} due to low compatibility scores.`,
+          "incompatible_match",
+          senderId,
+          senderName,
+          "ai_agent"
+        ),
+      ]);
+
+      // ── Real-time socket events ───────────────────────────────────────────
+      const incompatiblePayload = { sender_id: senderId, receiver_id: receiverId };
+      const senderSocketId   = onlineUsers.get(String(senderId));
+      const receiverSocketId = onlineUsers.get(String(receiverId));
+
+      if (senderSocketId) {
+        io.to(senderSocketId).emit("incompatible_match", incompatiblePayload);
+        if (senderNotif) io.to(senderSocketId).emit("new_notification", senderNotif);
+      }
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit("incompatible_match", incompatiblePayload);
+        if (receiverNotif) io.to(receiverSocketId).emit("new_notification", receiverNotif);
+      }
+
+      console.log(`🤖 [AIAgentService] Incompatible match for sender ${senderId} → receiver ${receiverId}. Socket + notifications emitted.`);
+
       return;
     }
 
