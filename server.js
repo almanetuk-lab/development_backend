@@ -58,59 +58,8 @@ import { verifySentimentSchema } from "./utils/schemaValidator.js";
 dotenv.config();
 
 const app = express();
+app.set("trust proxy", 1); // Trust first proxy (Render, Vercel, Cloudflare, etc.) to get correct client IPs for rate-limiting
 app.disable("x-powered-by");
-
-// ---- Strict Security Headers (Helmet) ----
-app.use(helmet({
-  // Strict Content-Security-Policy — only allow resources from trusted origins
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://js.stripe.com", "https://accounts.google.com"],
-      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
-      connectSrc: ["'self'", "https://api.stripe.com", "https://intentionalconnections.app"],
-      imgSrc: ["'self'", "data:", "https://*.supabase.co"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      objectSrc: ["'none'"],
-      upgradeInsecureRequests: [],
-    },
-  },
-  crossOriginEmbedderPolicy: false, // Required for Stripe iframes
-  hsts: {
-    maxAge: 31536000, // 1 year in seconds
-    includeSubDomains: true,
-    preload: true,
-  },
-}));
-
-// -------------------- Stripe Webhook Route (Exempt from Rate Limiting) ------------------------
-app.post(
-  "/payments/webhook",
-  express.raw({ type: "application/json" }),
-  stripeWebhook
-);
-
-// Apply rate limiters
-app.use("/api/register", authRateLimiter);
-app.use("/api/login", authRateLimiter);
-app.use("/api/forgotpassword", authRateLimiter);
-app.use("/api/reset-password", authRateLimiter);
-app.use("/payments/create-checkout-session", paymentRateLimiter);
-
-// Protect ALL other server endpoints globally against DDoS attacks
-app.use(globalRateLimiter);
-
-testConnection();
-verifySentimentSchema();
-
-// Middleware
-app.use(express.json());
-app.use(cookieParser());
-app.use(express.urlencoded({ extended: true }));
-
-// Serve static files from "uploads" directory
-//app.use("/uploads", express.static("uploads"));
 
 // -------------------- CORS Configuration ------------------------
 const staticAllowedOrigins = [
@@ -196,7 +145,60 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
+// Enable CORS early so it processes headers before rate limiters return error responses
 app.use(cors(corsOptions));
+
+// ---- Strict Security Headers (Helmet) ----
+app.use(helmet({
+  // Strict Content-Security-Policy — only allow resources from trusted origins
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://js.stripe.com", "https://accounts.google.com"],
+      frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+      connectSrc: ["'self'", "https://api.stripe.com", "https://intentionalconnections.app"],
+      imgSrc: ["'self'", "data:", "https://*.supabase.co"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Required for Stripe iframes
+  hsts: {
+    maxAge: 31536000, // 1 year in seconds
+    includeSubDomains: true,
+    preload: true,
+  },
+}));
+
+// -------------------- Stripe Webhook Route (Exempt from Rate Limiting) ------------------------
+app.post(
+  "/payments/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhook
+);
+
+// Apply rate limiters
+app.use("/api/register", authRateLimiter);
+app.use("/api/login", authRateLimiter);
+app.use("/api/forgotpassword", authRateLimiter);
+app.use("/api/reset-password", authRateLimiter);
+app.use("/payments/create-checkout-session", paymentRateLimiter);
+
+// Protect ALL other server endpoints globally against DDoS attacks
+app.use(globalRateLimiter);
+
+testConnection();
+verifySentimentSchema();
+
+// Middleware
+app.use(express.json());
+app.use(cookieParser());
+app.use(express.urlencoded({ extended: true }));
+
+// Serve static files from "uploads" directory
+//app.use("/uploads", express.static("uploads"));
 
 //  Create HTTP + Socket.IO server
 const server = http.createServer(app);
