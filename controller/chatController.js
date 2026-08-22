@@ -335,7 +335,7 @@ import {
 import { uploadToSupabase } from "../utils/supabaseUpload.js";
 import { createNotification } from "./notificationController.js";
 import { trackMessageActivity } from "../services/trustService.js";
-import { maybeGenerateAiReply } from "../services/aiAgentService.js";
+import { runAiConversation } from "../services/aiAgentService.js";
 
 dotenv.config();
 
@@ -598,8 +598,8 @@ export const getAllMessages = async (req, res) => {
       io.to(receiverSocketId).emit("new_notification", notifResult.rows[0]);
     }
 
-    // Fire-and-forget AI auto-reply for the receiver (async; do not await)
-    maybeGenerateAiReply(savedMessage).catch(() => {});
+    // Fire-and-forget AI conversation orchestrator (handles single-reply + AI-to-AI)
+    runAiConversation(savedMessage).catch(() => {});
 
     return res.status(201).json(savedMessage);
   } catch (error) {

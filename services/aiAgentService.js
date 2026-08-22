@@ -14,6 +14,12 @@ const COMFORT_OVERALL_THRESHOLD        = 70;
 const COMFORT_COMMUNICATION_THRESHOLD  = 65;
 const COMFORT_EMOTIONAL_THRESHOLD      = 65;
 
+// AI-to-AI conversation limits
+const MAX_AI_MESSAGES_PER_BURST = 6;  // total AI messages in one burst (3 per side)
+const AI_REPLY_DELAY_MS = 3000;       // 3s delay between AI messages for natural pacing
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ─────────────────────────────────────────────
@@ -184,7 +190,7 @@ export const generateAgentReply = async ({ ownerUserId, partnerUserId, incomingM
   try {
     const config = await getAgentConfig(ownerUserId);
     if (!config.enabled) return null;
-    if (incomingMessage.is_ai_generated) return null;
+    // Note: is_ai_generated guard removed — loop protection is handled by runAiConversation's counter
     const hasPlan = await receiverHasActivePlan(ownerUserId);
     if (!hasPlan) return null;
 
@@ -254,6 +260,11 @@ Write a natural, concise reply (1–3 short sentences, ~500 chars max). Match th
     return replyText;
   } catch (err) {
     console.error(`❌ [AIAgentService] generateAgentReply(${ownerUserId}):`, err.message);
+    emitAiError([ownerUserId, partnerUserId], {
+      code: "GEMINI_GENERATION_FAILED",
+      message: "AI agent couldn't generate a reply. Please try again later.",
+      context: `Gemini error for user ${ownerUserId}`,
+    });
     return null;
   }
 };
@@ -322,6 +333,28 @@ const emitAiTyping = (toUserId, aiOwnerId, isTyping) => {
       isTyping,
     });
     console.log(`⌨️  [AIAgentService] ai_typing=${isTyping} → socket of user ${toUserId} (AI owner: ${aiOwnerId})`);
+  }
+};
+
+// ─────────────────────────────────────────────
+// Generic AI error emitter
+// Sends an ai_agent_error socket event to one or both users
+// so the frontend can display a toast notification.
+// ─────────────────────────────────────────────
+const emitAiError = (toUserIds, { code, message, context }) => {
+  const payload = {
+    code: code || "AI_ERROR",
+    message: message || "AI agent encountered an error",
+    context: context || null,
+    timestamp: new Date().toISOString(),
+  };
+  const ids = Array.isArray(toUserIds) ? toUserIds : [toUserIds];
+  for (const uid of ids) {
+    const socketId = onlineUsers.get(String(uid));
+    if (socketId) {
+      io.to(socketId).emit("ai_agent_error", payload);
+      console.log(`🚨 [AIAgentService] ai_agent_error → user ${uid}: ${payload.code}`);
+    }
   }
 };
 
@@ -453,5 +486,246 @@ export const maybeGenerateAiReply = async (humanMessage) => {
     if (typingStarted) {
       emitAiTyping(senderId, receiverId, false);
     }
+  }
+};
+
+// ─────────────────────────────────────────────
+// Plan quota check + consume (for AI messages)
+// ─────────────────────────────────────────────
+
+const consumePlanQuota = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.people_message_limit, up.people_message_used
+       FROM user_plans up
+       JOIN plans p ON p.id = up.plan_id
+       WHERE up.user_id = $1 AND up.status = 'active' AND up.expires_at > NOW()`,
+      [userId]
+    );
+    if (rows.length === 0) return false;
+
+    const { people_message_limit, people_message_used } = rows[0];
+    if (people_message_limit === -1) return true; // unlimited
+    if (people_message_used >= people_message_limit) return false; // exhausted
+
+    await pool.query(
+      `UPDATE user_plans SET people_message_used = people_message_used + 1
+       WHERE user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+    return true;
+  } catch (err) {
+    console.error(`❌ [AIAgentService] consumePlanQuota(${userId}):`, err.message);
+    return false;
+  }
+};
+
+// ─────────────────────────────────────────────
+// Persist AI message WITHOUT notification (burst mode)
+// ─────────────────────────────────────────────
+
+const persistAiMessageSilent = async ({ senderId, receiverId, content }) => {
+  const { rows } = await pool.query(
+    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
+     VALUES ($1, $2, $3, NULL, FALSE, TRUE)
+     RETURNING *`,
+    [senderId, receiverId, content]
+  );
+  const aiMessage = rows[0];
+  io.emit("new_message", aiMessage);
+  console.log(`📨 [AIAgentService] AI message (silent) persisted (sender: ${senderId}, receiver: ${receiverId})`);
+  return aiMessage;
+};
+
+// ─────────────────────────────────────────────
+// Summary notification after AI burst completes
+// ─────────────────────────────────────────────
+
+const sendBurstSummaryNotification = async (userAId, userBId, aiMessageCount) => {
+  try {
+    const [nameA, nameB] = await Promise.all([
+      pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [userAId]),
+      pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [userBId]),
+    ]);
+    const nameOfA = nameA.rows.length
+      ? `${nameA.rows[0].first_name} ${nameA.rows[0].last_name ?? ""}`.trim()
+      : `User ${userAId}`;
+    const nameOfB = nameB.rows.length
+      ? `${nameB.rows[0].first_name} ${nameB.rows[0].last_name ?? ""}`.trim()
+      : `User ${userBId}`;
+
+    const notifA = await pool.query(
+      `INSERT INTO notifications (user_id, title, message, type, is_read, created_at, sender_id, sender_name, source)
+       VALUES ($1, $2, $3, $4, FALSE, NOW(), $5, $6, 'ai_agent') RETURNING *`,
+      [userAId, "🤖 AI Conversation", `Your AI agent exchanged ${aiMessageCount} messages with ${nameOfB}`, "Message", userBId, nameOfB]
+    );
+    const notifB = await pool.query(
+      `INSERT INTO notifications (user_id, title, message, type, is_read, created_at, sender_id, sender_name, source)
+       VALUES ($1, $2, $3, $4, FALSE, NOW(), $5, $6, 'ai_agent') RETURNING *`,
+      [userBId, "🤖 AI Conversation", `Your AI agent exchanged ${aiMessageCount} messages with ${nameOfA}`, "Message", userAId, nameOfA]
+    );
+
+    const socketA = onlineUsers.get(String(userAId));
+    const socketB = onlineUsers.get(String(userBId));
+    if (socketA && notifA.rows.length > 0) io.to(socketA).emit("new_notification", notifA.rows[0]);
+    if (socketB && notifB.rows.length > 0) io.to(socketB).emit("new_notification", notifB.rows[0]);
+
+    console.log(`🔔 [AIAgentService] Burst summary sent (${aiMessageCount} msgs between ${userAId} ↔ ${userBId})`);
+  } catch (err) {
+    console.error(`❌ [AIAgentService] sendBurstSummaryNotification error:`, err.message);
+  }
+};
+
+// ─────────────────────────────────────────────
+// AI-to-AI Conversation Orchestrator
+// Entry point — replaces maybeGenerateAiReply in chatController.
+// Single-reply when only receiver has AI; iterative loop when both do.
+// ─────────────────────────────────────────────
+
+export const runAiConversation = async (humanMessage) => {
+  const originalSenderId = humanMessage.sender_id;
+  const originalReceiverId = humanMessage.receiver_id;
+
+  try {
+    // ── Phase 1: Entry guards (same as maybeGenerateAiReply) ──
+    if (humanMessage.is_ai_generated) {
+      console.log(`🤖 [AIConversation] Skipping — message is AI-generated`);
+      return;
+    }
+    if (!humanMessage.content || !humanMessage.content.trim()) {
+      console.log(`🤖 [AIConversation] Skipping — attachment-only`);
+      return;
+    }
+
+    const receiverConfig = await getAgentConfig(originalReceiverId);
+    if (!receiverConfig.enabled) {
+      console.log(`🤖 [AIConversation] AI disabled for receiver ${originalReceiverId}`);
+      return;
+    }
+    if (!(await receiverHasActivePlan(originalReceiverId))) {
+      console.log(`🤖 [AIConversation] No active plan for receiver ${originalReceiverId}`);
+      return;
+    }
+
+    // Comfortability check (symmetric — covers both directions)
+    const isComfortable = await checkProfileComfortability(originalSenderId, originalReceiverId);
+    if (!isComfortable) {
+      console.log(`🤖 [AIConversation] Comfortability FAILED ${originalSenderId} → ${originalReceiverId}`);
+
+      // ── Incompatible match notifications (preserved from maybeGenerateAiReply) ──
+      const [senderNameRes, receiverNameRes] = await Promise.all([
+        pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [originalSenderId]),
+        pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [originalReceiverId]),
+      ]);
+      const senderName = senderNameRes.rows.length
+        ? `${senderNameRes.rows[0].first_name} ${senderNameRes.rows[0].last_name ?? ""}`.trim()
+        : `User ${originalSenderId}`;
+      const receiverName = receiverNameRes.rows.length
+        ? `${receiverNameRes.rows[0].first_name} ${receiverNameRes.rows[0].last_name ?? ""}`.trim()
+        : `User ${originalReceiverId}`;
+
+      const [senderNotif, receiverNotif] = await Promise.all([
+        createNotification(originalSenderId, "⚠️ Match Incompatibility",
+          `Your AI agent will not reply in your conversation with ${receiverName} due to low compatibility scores.`,
+          "incompatible_match", originalReceiverId, receiverName, "ai_agent"),
+        createNotification(originalReceiverId, "⚠️ Match Incompatibility",
+          `Your AI agent will not reply in your conversation with ${senderName} due to low compatibility scores.`,
+          "incompatible_match", originalSenderId, senderName, "ai_agent"),
+      ]);
+
+      const payload = { sender_id: originalSenderId, receiver_id: originalReceiverId };
+      const sSock = onlineUsers.get(String(originalSenderId));
+      const rSock = onlineUsers.get(String(originalReceiverId));
+      if (sSock) {
+        io.to(sSock).emit("incompatible_match", payload);
+        if (senderNotif) io.to(sSock).emit("new_notification", senderNotif);
+      }
+      if (rSock) {
+        io.to(rSock).emit("incompatible_match", payload);
+        if (receiverNotif) io.to(rSock).emit("new_notification", receiverNotif);
+      }
+      return;
+    }
+
+    // ── Phase 2: Determine mode ──
+    const senderConfig = await getAgentConfig(originalSenderId);
+    const bothAiEnabled = senderConfig.enabled && (await receiverHasActivePlan(originalSenderId));
+    const maxMessages = bothAiEnabled ? MAX_AI_MESSAGES_PER_BURST : 1;
+
+    console.log(`🤖 [AIConversation] Mode: ${bothAiEnabled ? `BOTH AI (max ${maxMessages})` : 'SINGLE REPLY'}`);
+
+    // ── Phase 3: Iterative loop ──
+    let currentSenderId = originalReceiverId;   // B replies first
+    let currentReceiverId = originalSenderId;   // A receives first
+    let lastMessage = humanMessage;
+    let aiMessageCount = 0;
+
+    for (let i = 0; i < maxMessages; i++) {
+      // Natural delay between AI messages (skip delay for the very first reply)
+      if (i > 0) await sleep(AI_REPLY_DELAY_MS);
+
+      // Re-check: AI still enabled?
+      const cfg = await getAgentConfig(currentSenderId);
+      if (!cfg.enabled) {
+        console.log(`🤖 [AIConversation] AI disabled for ${currentSenderId} at round ${i + 1} — stopping`);
+        break;
+      }
+      // Re-check: active plan?
+      if (!(await receiverHasActivePlan(currentSenderId))) {
+        console.log(`🤖 [AIConversation] No plan for ${currentSenderId} at round ${i + 1} — stopping`);
+        break;
+      }
+      // Check & consume plan quota
+      const quotaOk = await consumePlanQuota(currentSenderId);
+      if (!quotaOk) {
+        console.log(`🤖 [AIConversation] Quota exhausted for ${currentSenderId} at round ${i + 1} — stopping`);
+        break;
+      }
+
+      // Typing indicator → receiver sees "sender is typing"
+      emitAiTyping(currentReceiverId, currentSenderId, true);
+
+      let replyContent;
+      try {
+        replyContent = await generateAgentReply({
+          ownerUserId: currentSenderId,
+          partnerUserId: currentReceiverId,
+          incomingMessage: lastMessage,
+        });
+      } finally {
+        emitAiTyping(currentReceiverId, currentSenderId, false);
+      }
+
+      if (!replyContent) {
+        console.log(`🤖 [AIConversation] Empty reply for ${currentSenderId} at round ${i + 1} — stopping`);
+        break;
+      }
+
+      // Save AI message — silent in burst mode, full notification in single-reply mode
+      const aiMsg = bothAiEnabled
+        ? await persistAiMessageSilent({ senderId: currentSenderId, receiverId: currentReceiverId, content: replyContent })
+        : await persistAiMessage({ senderId: currentSenderId, receiverId: currentReceiverId, content: replyContent });
+
+      aiMessageCount++;
+      console.log(`🤖 [AIConversation] Round ${i + 1}/${maxMessages}: ${currentSenderId} → ${currentReceiverId} ✅ (total: ${aiMessageCount})`);
+
+      lastMessage = aiMsg;
+      // Swap roles
+      [currentSenderId, currentReceiverId] = [currentReceiverId, currentSenderId];
+    }
+
+    // ── Phase 4: Summary notification (conversation mode only) ──
+    if (bothAiEnabled && aiMessageCount > 0) {
+      await sendBurstSummaryNotification(originalSenderId, originalReceiverId, aiMessageCount);
+    }
+
+    console.log(`🤖 [AIConversation] Done — ${aiMessageCount/2} AI messages (${originalSenderId} ↔ ${originalReceiverId})`);
+  } catch (err) {
+    console.error(`❌ [AIConversation] runAiConversation error:`, err.message);
+    emitAiError([originalSenderId, originalReceiverId], {
+      code: "AI_CONVERSATION_FAILED",
+      message: "AI conversation encountered an unexpected error.",
+      context: `Conversation between ${originalSenderId} ↔ ${originalReceiverId}`,
+    });
   }
 };
