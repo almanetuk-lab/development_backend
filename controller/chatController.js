@@ -528,8 +528,12 @@ export const getAllMessages = async (req, res) => {
 
     const { people_message_limit, people_message_used } = planResult.rows[0];
 
-    // 🚫 BLOCK IF LIMIT EXCEEDED (except unlimited = -1)
+    // 🚫 BLOCK IF LIMIT EXCEEDED (except unlimited = -1 AND limit check enabled)
+    const configRes = await pool.query("SELECT check_message_limit FROM configurations LIMIT 1");
+    const checkMessageLimit = configRes.rows[0]?.check_message_limit ?? 1;
+
     if (
+      checkMessageLimit === 1 &&
       people_message_limit !== -1 &&
       people_message_used >= people_message_limit
     ) {
@@ -562,7 +566,7 @@ export const getAllMessages = async (req, res) => {
       sender_id,
     ]);
     const senderFullName = `${senderNameResult.rows[0].first_name} ${senderNameResult.rows[0].last_name}`;
-    if (people_message_limit !== -1) {
+    if (checkMessageLimit === 1 && people_message_limit !== -1) {
       await pool.query(
         `
         UPDATE user_plans
