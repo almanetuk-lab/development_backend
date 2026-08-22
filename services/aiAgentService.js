@@ -362,132 +362,132 @@ const emitAiError = (toUserIds, { code, message, context }) => {
 // Orchestrator — fire-and-forget entry point
 // ─────────────────────────────────────────────
 
-export const maybeGenerateAiReply = async (humanMessage) => {
-  const receiverId = humanMessage.receiver_id; // User B — the one whose AI will reply
-  const senderId = humanMessage.sender_id;     // User A — the one who should see the indicator
+// export const maybeGenerateAiReply = async (humanMessage) => {
+//   const receiverId = humanMessage.receiver_id; // User B — the one whose AI will reply
+//   const senderId = humanMessage.sender_id;     // User A — the one who should see the indicator
 
-  let typingStarted = false;
+//   let typingStarted = false;
 
-  try {
-    // Guard: skip AI-generated messages (prevent AI↔AI loops)
-    if (humanMessage.is_ai_generated) {
-      console.log(`🤖 [AIAgentService] Skipping AI reply — incoming message is already AI-generated`);
-      return;
-    }
+//   try {
+//     // Guard: skip AI-generated messages (prevent AI↔AI loops)
+//     if (humanMessage.is_ai_generated) {
+//       console.log(`🤖 [AIAgentService] Skipping AI reply — incoming message is already AI-generated`);
+//       return;
+//     }
 
-    // Guard: skip attachment-only messages (no text content)
-    if (!humanMessage.content || !humanMessage.content.trim()) {
-      console.log(`🤖 [AIAgentService] Skipping AI reply — attachment-only message`);
-      return;
-    }
+//     // Guard: skip attachment-only messages (no text content)
+//     if (!humanMessage.content || !humanMessage.content.trim()) {
+//       console.log(`🤖 [AIAgentService] Skipping AI reply — attachment-only message`);
+//       return;
+//     }
 
-    // Load config for receiver (User B)
-    const config = await getAgentConfig(receiverId);
-    if (!config.enabled) {
-      console.log(`🤖 [AIAgentService] AI disabled for user ${receiverId}`);
-      return;
-    }
+//     // Load config for receiver (User B)
+//     const config = await getAgentConfig(receiverId);
+//     if (!config.enabled) {
+//       console.log(`🤖 [AIAgentService] AI disabled for user ${receiverId}`);
+//       return;
+//     }
 
-    // Check active plan for receiver (User B)
-    const hasPlan = await receiverHasActivePlan(receiverId);
-    if (!hasPlan) {
-      console.log(`🤖 [AIAgentService] No active plan for receiver ${receiverId} — skipping AI reply`);
-      return;
-    }
+//     // Check active plan for receiver (User B)
+//     const hasPlan = await receiverHasActivePlan(receiverId);
+//     if (!hasPlan) {
+//       console.log(`🤖 [AIAgentService] No active plan for receiver ${receiverId} — skipping AI reply`);
+//       return;
+//     }
 
-    // [GUARD 5] Comfortability check — sender profile must pass all three thresholds
-    const isComfortable = await checkProfileComfortability(senderId, receiverId);
-    if (!isComfortable) {
-      console.log(`🤖 [AIAgentService] Comfortability FAILED for sender ${senderId} → receiver ${receiverId}. AI silent.`);
+//     // [GUARD 5] Comfortability check — sender profile must pass all three thresholds
+//     const isComfortable = await checkProfileComfortability(senderId, receiverId);
+//     if (!isComfortable) {
+//       console.log(`🤖 [AIAgentService] Comfortability FAILED for sender ${senderId} → receiver ${receiverId}. AI silent.`);
 
-      // ── Fetch both users' display names for notification messages ──────────
-      const [senderNameResult, receiverNameResult] = await Promise.all([
-        pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [senderId]),
-        pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [receiverId]),
-      ]);
-      const senderName   = senderNameResult.rows.length
-        ? `${senderNameResult.rows[0].first_name} ${senderNameResult.rows[0].last_name ?? ""}`.trim()
-        : `User ${senderId}`;
-      const receiverName = receiverNameResult.rows.length
-        ? `${receiverNameResult.rows[0].first_name} ${receiverNameResult.rows[0].last_name ?? ""}`.trim()
-        : `User ${receiverId}`;
+//       // ── Fetch both users' display names for notification messages ──────────
+//       const [senderNameResult, receiverNameResult] = await Promise.all([
+//         pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [senderId]),
+//         pool.query(`SELECT first_name, last_name FROM profiles WHERE user_id = $1`, [receiverId]),
+//       ]);
+//       const senderName   = senderNameResult.rows.length
+//         ? `${senderNameResult.rows[0].first_name} ${senderNameResult.rows[0].last_name ?? ""}`.trim()
+//         : `User ${senderId}`;
+//       const receiverName = receiverNameResult.rows.length
+//         ? `${receiverNameResult.rows[0].first_name} ${receiverNameResult.rows[0].last_name ?? ""}`.trim()
+//         : `User ${receiverId}`;
 
-      // ── Persist bell-icon notifications for BOTH parties ─────────────────
-      // Sender gets notified that AI won't reply in their chat with receiver
-      // Receiver gets notified that AI won't reply in their chat with sender
-      const [senderNotif, receiverNotif] = await Promise.all([
-        createNotification(
-          senderId,
-          "⚠️ Match Incompatibility",
-          `Your AI agent will not reply in your conversation with ${receiverName} due to low compatibility scores.`,
-          "incompatible_match",
-          receiverId,
-          receiverName,
-          "ai_agent"
-        ),
-        createNotification(
-          receiverId,
-          "⚠️ Match Incompatibility",
-          `Your AI agent will not reply in your conversation with ${senderName} due to low compatibility scores.`,
-          "incompatible_match",
-          senderId,
-          senderName,
-          "ai_agent"
-        ),
-      ]);
+//       // ── Persist bell-icon notifications for BOTH parties ─────────────────
+//       // Sender gets notified that AI won't reply in their chat with receiver
+//       // Receiver gets notified that AI won't reply in their chat with sender
+//       const [senderNotif, receiverNotif] = await Promise.all([
+//         createNotification(
+//           senderId,
+//           "⚠️ Match Incompatibility",
+//           `Your AI agent will not reply in your conversation with ${receiverName} due to low compatibility scores.`,
+//           "incompatible_match",
+//           receiverId,
+//           receiverName,
+//           "ai_agent"
+//         ),
+//         createNotification(
+//           receiverId,
+//           "⚠️ Match Incompatibility",
+//           `Your AI agent will not reply in your conversation with ${senderName} due to low compatibility scores.`,
+//           "incompatible_match",
+//           senderId,
+//           senderName,
+//           "ai_agent"
+//         ),
+//       ]);
 
-      // ── Real-time socket events ───────────────────────────────────────────
-      const incompatiblePayload = { sender_id: senderId, receiver_id: receiverId };
-      const senderSocketId   = onlineUsers.get(String(senderId));
-      const receiverSocketId = onlineUsers.get(String(receiverId));
+//       // ── Real-time socket events ───────────────────────────────────────────
+//       const incompatiblePayload = { sender_id: senderId, receiver_id: receiverId };
+//       const senderSocketId   = onlineUsers.get(String(senderId));
+//       const receiverSocketId = onlineUsers.get(String(receiverId));
 
-      if (senderSocketId) {
-        io.to(senderSocketId).emit("incompatible_match", incompatiblePayload);
-        if (senderNotif) io.to(senderSocketId).emit("new_notification", senderNotif);
-      }
-      if (receiverSocketId) {
-        io.to(receiverSocketId).emit("incompatible_match", incompatiblePayload);
-        if (receiverNotif) io.to(receiverSocketId).emit("new_notification", receiverNotif);
-      }
+//       if (senderSocketId) {
+//         io.to(senderSocketId).emit("incompatible_match", incompatiblePayload);
+//         if (senderNotif) io.to(senderSocketId).emit("new_notification", senderNotif);
+//       }
+//       if (receiverSocketId) {
+//         io.to(receiverSocketId).emit("incompatible_match", incompatiblePayload);
+//         if (receiverNotif) io.to(receiverSocketId).emit("new_notification", receiverNotif);
+//       }
 
-      console.log(`🤖 [AIAgentService] Incompatible match for sender ${senderId} → receiver ${receiverId}. Socket + notifications emitted.`);
+//       console.log(`🤖 [AIAgentService] Incompatible match for sender ${senderId} → receiver ${receiverId}. Socket + notifications emitted.`);
 
-      return;
-    }
+//       return;
+//     }
 
-    // ── Start typing indicator ──
-    // User A (senderId) should see "AI is typing..." from User B (receiverId)
-    emitAiTyping(senderId, receiverId, true);
-    typingStarted = true;
+//     // ── Start typing indicator ──
+//     // User A (senderId) should see "AI is typing..." from User B (receiverId)
+//     emitAiTyping(senderId, receiverId, true);
+//     typingStarted = true;
 
-    // Generate reply
-    const replyContent = await generateAgentReply({
-      ownerUserId: receiverId,
-      partnerUserId: senderId,
-      incomingMessage: humanMessage,
-    });
+//     // Generate reply
+//     const replyContent = await generateAgentReply({
+//       ownerUserId: receiverId,
+//       partnerUserId: senderId,
+//       incomingMessage: humanMessage,
+//     });
 
-    if (!replyContent) {
-      console.log(`🤖 [AIAgentService] No reply generated for user ${receiverId}`);
-      return;
-    }
+//     if (!replyContent) {
+//       console.log(`🤖 [AIAgentService] No reply generated for user ${receiverId}`);
+//       return;
+//     }
 
-    // Persist + emit (socket new_message will clear the typing indicator on frontend too)
-    await persistAiMessage({
-      senderId: receiverId,  // AI replies AS User B
-      receiverId: senderId,  // delivered TO User A
-      content: replyContent,
-    });
-  } catch (err) {
-    console.error(`❌ [AIAgentService] maybeGenerateAiReply error:`, err.message);
-    // Never re-throw — this is fire-and-forget
-  } finally {
-    // ── Always clear typing indicator ──
-    if (typingStarted) {
-      emitAiTyping(senderId, receiverId, false);
-    }
-  }
-};
+//     // Persist + emit (socket new_message will clear the typing indicator on frontend too)
+//     await persistAiMessage({
+//       senderId: receiverId,  // AI replies AS User B
+//       receiverId: senderId,  // delivered TO User A
+//       content: replyContent,
+//     });
+//   } catch (err) {
+//     console.error(`❌ [AIAgentService] maybeGenerateAiReply error:`, err.message);
+//     // Never re-throw — this is fire-and-forget
+//   } finally {
+//     // ── Always clear typing indicator ──
+//     if (typingStarted) {
+//       emitAiTyping(senderId, receiverId, false);
+//     }
+//   }
+// };
 
 // ─────────────────────────────────────────────
 // Plan quota check + consume (for AI messages)
@@ -684,6 +684,7 @@ export const runAiConversation = async (humanMessage) => {
 
       // Typing indicator → receiver sees "sender is typing"
       emitAiTyping(currentReceiverId, currentSenderId, true);
+      emitAiTyping(currentSenderId, currentReceiverId, true);
 
       let replyContent;
       try {
@@ -694,6 +695,7 @@ export const runAiConversation = async (humanMessage) => {
         });
       } finally {
         emitAiTyping(currentReceiverId, currentSenderId, false);
+        emitAiTyping(currentSenderId, currentReceiverId, false);
       }
 
       if (!replyContent) {

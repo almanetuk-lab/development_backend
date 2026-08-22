@@ -574,7 +574,7 @@ export const getAllMessages = async (req, res) => {
     }
     /* ⭐ SHRADDHA NEW CODE END */
     // 🔔 SOCKET EVENT
-    io.emit("new_message", savedMessage);
+    io.to(onlineUsers.get(String(receiver_id))).emit("new_message", savedMessage);
 
     // 🔔 NOTIFICATION
     const notifResult = await pool.query(
