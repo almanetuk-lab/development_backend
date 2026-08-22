@@ -41,16 +41,20 @@ export const searchProfiles = async (req, res) => {
         });
       }
 
-      // 🚫 Block ONLY if NOT unlimited AND limit reached
-if (
-  planRows[0].people_search_limit !== -1 &&
-  planRows[0].people_search_used >= planRows[0].people_search_limit
-) {
-  return res.status(403).json({
-    code: "SEARCH_LIMIT_EXCEEDED",
-    message: "Your people search limit is over",
-  });
-}
+      // 🚫 Block ONLY if NOT unlimited AND limit reached AND global limit check is enabled
+      const configRes = await pool.query("SELECT check_search_limit FROM configurations LIMIT 1");
+      const checkSearchLimit = configRes.rows[0]?.check_search_limit ?? 1;
+
+      if (
+        checkSearchLimit === 1 &&
+        planRows[0].people_search_limit !== -1 &&
+        planRows[0].people_search_used >= planRows[0].people_search_limit
+      ) {
+        return res.status(403).json({
+          code: "SEARCH_LIMIT_EXCEEDED",
+          message: "Your people search limit is over",
+        });
+      }
 
     }
     /* ==========================================================
@@ -326,15 +330,20 @@ if (
        ⭐ SHRADDHA NEW CODE START — INCREMENT SEARCH COUNT
     ========================================================== */
     if (userId) {
-      await pool.query(
-        `
-        UPDATE user_plans
-        SET people_search_used = people_search_used + 1,
-            updated_at = NOW()
-        WHERE user_id = $1
-        `,
-        [userId]
-      );
+      const configRes = await pool.query("SELECT check_search_limit FROM configurations LIMIT 1");
+      const checkSearchLimit = configRes.rows[0]?.check_search_limit ?? 1;
+
+      if (checkSearchLimit === 1) {
+        await pool.query(
+          `
+          UPDATE user_plans
+          SET people_search_used = people_search_used + 1,
+              updated_at = NOW()
+          WHERE user_id = $1 AND status = 'active'
+          `,
+          [userId]
+        );
+      }
     }
     /* ==========================================================
        ⭐ SHRADDHA NEW CODE END

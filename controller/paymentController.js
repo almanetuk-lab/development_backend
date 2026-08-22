@@ -125,6 +125,45 @@ export const createCheckoutSession = async (req, res) => {
 
     const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:5173").replace(/\/+$/, "");
 
+    // Direct activation for Free Tiers (Price = 0)
+    if (Number(plan.price) === 0) {
+      const dummySessionId = `free_sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // 1. Insert completed free payment
+      const newPayment = await pool.query(
+        `
+        INSERT INTO payments (user_id, plan_id, plan_name, amount, currency, stripe_session_id, status)
+        VALUES ($1, $2, $3, 0, 'GBP', $4, 'success')
+        RETURNING id
+        `,
+        [user_id, plan.id, plan.name, dummySessionId]
+      );
+      const payment_id = newPayment.rows[0].id;
+      const duration = Number(plan.duration) || 30;
+
+      // 2. Expire old active plans
+      await pool.query(
+        `
+        UPDATE user_plans
+        SET status='expired'
+        WHERE user_id=$1 AND status='active'
+        `,
+        [user_id]
+      );
+
+      // 3. Activate new free plan
+      await pool.query(
+        `
+        INSERT INTO user_plans (user_id, plan_id, payment_id, status, starts_at, expires_at)
+        VALUES ($1, $2, $3, 'active', NOW(), NOW() + ($4 * INTERVAL '1 day'))
+        `,
+        [user_id, plan.id, payment_id, duration]
+      );
+
+      const successUrl = `${frontendUrl}/#/payment-success?session_id=${dummySessionId}`;
+      return res.json({ url: successUrl });
+    }
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       mode: "payment",
@@ -172,6 +211,10 @@ export const verifyCheckoutSession = async (req, res) => {
 
     if (!session_id) {
       return res.status(400).json({ message: "Missing session_id" });
+    }
+
+    if (String(session_id).startsWith("free_sess_")) {
+      return res.json({ success: true, message: "Free tier plan verified & active!" });
     }
 
     const session = await stripe.checkout.sessions.retrieve(session_id);
