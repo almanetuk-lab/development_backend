@@ -7,7 +7,7 @@ export const getPlanStatus = async (req, res) => {
 
     const result = await pool.query(
       `
-      SELECT up.expires_at, p.name as plan_name
+      SELECT up.expires_at, p.name as plan_name, p.allowed_features
       FROM user_plans up
       LEFT JOIN plans p ON up.plan_id = p.id
       WHERE up.user_id = $1
@@ -19,7 +19,7 @@ export const getPlanStatus = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.json({ active: false, days_left: 0, plan_name: "Free Plan" });
+      return res.json({ active: false, days_left: 0, plan_name: "Free Plan", allowed_features: null });
     }
 
     const expiresAt = new Date(result.rows[0].expires_at);
@@ -33,7 +33,8 @@ export const getPlanStatus = async (req, res) => {
     res.json({
       active: daysLeft > 0,
       days_left: daysLeft,
-      plan_name: result.rows[0].plan_name || "Premium Plan"
+      plan_name: result.rows[0].plan_name || "Premium Plan",
+      allowed_features: result.rows[0].allowed_features || null
     });
   } catch (err) {
     console.error("Plan status error:", err);

@@ -12,6 +12,7 @@ import {
   runSentimentAudit,
 } from "../controller/matchController.js";
 import { validateAccessToken } from "../middleware/verfiytoken.js";
+import { checkFeatureGuard } from "../middleware/checkActivePlan.js";
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ const router = express.Router();
 // AI Semantic Suggestions (vector cosine similarity search)
 // GET /api/matches/suggestions
 // ──────────────────────────────────────────────────────────────
-router.get("/api/matches/suggestions", validateAccessToken, getSuggestions);
+router.get("/api/matches/suggestions", validateAccessToken, checkFeatureGuard("ai_suggestion"), getSuggestions);
 
 // ──────────────────────────────────────────────────────────────
 // Adaptive Query Refinement — Clarification Loop (Point #7)

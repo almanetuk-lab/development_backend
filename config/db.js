@@ -106,6 +106,23 @@ export const testConnection = async () => {
     `);
     console.log("🧬 profiles table psychological AI columns successfully verified.");
 
+    // Dynamic columns verification for plans allowed_features column
+    console.log("💳 Verifying plans table allowed_features column...");
+    await pool.query(`
+      ALTER TABLE plans ADD COLUMN IF NOT EXISTS allowed_features JSONB;
+    `);
+    console.log("💳 plans table allowed_features column successfully verified.");
+
+    // Backfill legacy plans with all features enabled by default
+    console.log("💳 Backfilling legacy plans allowed_features...");
+    await pool.query(`
+      UPDATE plans 
+      SET allowed_features = '{"dashboard":true,"profile":true,"message":true,"basic_search":true,"advance_search":true,"edit_profile":true,"my_matches":true,"ai_suggestion":true,"near_me":true,"browse_members":true,"ai_agent":true}'::jsonb
+      WHERE allowed_features IS NULL;
+    `);
+    console.log("💳 Backfilling legacy plans allowed_features completed.");
+
+
     // Dynamic table initialization for security_audit_logs
     console.log("🛡️ Verifying security_audit_logs table...");
     await pool.query(`

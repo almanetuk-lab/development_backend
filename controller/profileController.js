@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 import { extractIntentTags, enrichContextualMetadata } from "../services/geminiService.js";
 import { buildSemanticProfileText, generateEmbedding } from "../services/embeddingService.js";
 import { extractProfessionalEntities } from "../services/entityRecognitionService.js";
@@ -572,6 +573,8 @@ export const updateProfile = async (req, res) => {
     };
 
     console.log("[DEBUG] Profile Update Completed");
+
+    logAuditEvent(userId, "PROFILE_EDIT", { email, first_name, last_name }, req);
 
     return res.status(200).json({
       message: "Profile and email updated successfully",

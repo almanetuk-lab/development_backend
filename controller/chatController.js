@@ -328,6 +328,7 @@ import dotenv from "dotenv";
 import { v4 as uuidv4 } from "uuid";
 import { io, onlineUsers } from "../server.js";
 import { pool } from "../config/db.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 import {
   searchUsers,
   getRecentChats as dbGetRecentChats,
@@ -555,6 +556,7 @@ export const getAllMessages = async (req, res) => {
     );
 
     const savedMessage = rows[0];
+    logAuditEvent(sender_id, "CHAT_SEND", { receiver_id, message_id: savedMessage.id, has_attachment: !!attachment_url }, req);
 
     // Module 8 — Track message activity for trust points (non-blocking)
     trackMessageActivity(sender_id, receiver_id).catch(() => {});
@@ -635,6 +637,7 @@ export const addReaction = async (req, res) => {
     );
 
     const reaction = rows[0];
+    logAuditEvent(user_id, "CHAT_REACTION", { message_id, emoji }, req);
     const messageResult = await pool.query(
       `SELECT sender_id, receiver_id FROM messages WHERE id = $1`,
       [message_id],
@@ -731,6 +734,7 @@ export const deleteMessage = async (req, res) => {
     }
 
     await pool.query("DELETE FROM messages WHERE id = $1", [messageId]);
+    logAuditEvent(userId, "CHAT_DELETE", { message_id: messageId, receiver_id: msg.rows[0].receiver_id }, req);
     io.emit("message_deleted", { id: messageId });
 
     return res.json({ success: true });

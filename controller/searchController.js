@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 
 const computedLat = `pr.latitude`;
 
@@ -11,6 +12,65 @@ export const searchProfiles = async (req, res) => {
        ⭐ SHRADDHA NEW CODE START — USER FROM TOKEN (CHAT STYLE)
     ========================================================== */
     const userId = req.user?.id;
+    const { search_mode } = req.query;
+
+    if (userId) {
+      let requiredFeature = "basic_search";
+      if (search_mode === "advanced") {
+        requiredFeature = "advance_search";
+      } else if (search_mode === "nearme") {
+        requiredFeature = "near_me";
+      }
+
+      const planRes = await pool.query(
+        `
+        SELECT p.allowed_features, up.expires_at
+        FROM user_plans up
+        LEFT JOIN plans p ON up.plan_id = p.id
+        WHERE up.user_id = $1 AND up.status = 'active'
+        ORDER BY up.expires_at DESC
+        LIMIT 1
+        `,
+        [userId]
+      );
+
+      let hasActivePlan = false;
+      let allowedFeatures = null;
+
+      if (planRes.rows.length > 0) {
+        const expiresAt = new Date(planRes.rows[0].expires_at);
+        if (expiresAt >= new Date()) {
+          hasActivePlan = true;
+          allowedFeatures = planRes.rows[0].allowed_features;
+        }
+      }
+
+      let isAllowed = false;
+      if (!hasActivePlan) {
+        // Free tier (no active plan) default allowed features
+        const defaultFreeFeatures = {
+          edit_profile: true,
+          basic_search: true,
+          dashboard: true,
+        };
+        isAllowed = !!defaultFreeFeatures[requiredFeature];
+      } else {
+        if (allowedFeatures === null || allowedFeatures === undefined) {
+          isAllowed = true; // Legacy plan, allow by default
+        } else if (Array.isArray(allowedFeatures)) {
+          isAllowed = allowedFeatures.includes(requiredFeature);
+        } else if (typeof allowedFeatures === 'object') {
+          isAllowed = !!allowedFeatures[requiredFeature];
+        }
+      }
+
+      if (!isAllowed) {
+        return res.status(403).json({
+          code: "PLAN_RESTRICTED",
+          message: `Access denied. Your plan does not support the '${requiredFeature}' feature.`,
+        });
+      }
+    }
     /* ==========================================================
        ⭐ SHRADDHA NEW CODE END
     ========================================================== */
@@ -78,8 +138,7 @@ export const searchProfiles = async (req, res) => {
       radius,
       marital_status,
       lat,
-      lon,
-      search_mode
+      lon
     } = req.query;
 
     let queryStr = `
@@ -323,6 +382,10 @@ export const searchProfiles = async (req, res) => {
 
     const { rows } = await pool.query(queryStr, params);
     let finalRows = rows;
+
+    if (userId) {
+      logAuditEvent(userId, `SEARCH_${(search_mode || "basic").toUpperCase()}`, { filters: req.query, results_count: finalRows.length }, req);
+    }
 
 
 

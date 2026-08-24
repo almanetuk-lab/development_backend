@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { sendNotification } from "../server.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 dotenv.config();
 
 // ---------------- Admin Login ----------------
@@ -52,6 +53,8 @@ export const approveUser = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    logAuditEvent(req.admin?.id || approvedUser.approved_by || null, "USER_APPROVE", { target_user_id: approvedUser.id }, req);
+
     const { reason, ...userWithoutReason } = result.rows[0];
 
     // ✅ Send notification
@@ -95,6 +98,8 @@ export const onHoldUser = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    logAuditEvent(req.admin?.id || null, "USER_HOLD", { target_user_id: user_id, reason }, req);
+
     // ✅ Send notification
     await sendNotification(
       user_id,
@@ -136,6 +141,8 @@ export const deactivateUser = async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    logAuditEvent(req.admin?.id || null, "USER_DEACTIVATE", { target_user_id: user_id, reason }, req);
 
     // ✅ Send notification
     await sendNotification(

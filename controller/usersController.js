@@ -1,5 +1,6 @@
 import { pool } from '../config/db.js';
 import { generateAndCacheCompatibility } from './matchController.js';
+import { logAuditEvent } from '../utils/auditLogger.js';
 
 //Get specific Users and Profile table:
 export const userProfile = async (req, res) => {
@@ -85,6 +86,7 @@ export const userProfile = async (req, res) => {
     const currentUserId = req.user?.id;
     if (currentUserId && Number(currentUserId) !== Number(userId)) {
         console.log(`🧬 Profile View Trigger: Generating compatibility in background for viewer ${currentUserId} and target ${userId}...`);
+        logAuditEvent(currentUserId, "PROFILE_VIEW", { viewed_user_id: userId }, req);
         generateAndCacheCompatibility(currentUserId, userId).catch(err => {
             console.error("❌ Background auto-generation error on profile view:", err.message);
         });
