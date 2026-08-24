@@ -1,6 +1,7 @@
 import { pool } from '../config/db.js';
 import { generateAndCacheCompatibility } from './matchController.js';
 import { logAuditEvent } from '../utils/auditLogger.js';
+import { computeTrustStatus } from '../services/trustService.js';
 
 //Get specific Users and Profile table:
 export const userProfile = async (req, res) => {
@@ -10,6 +11,7 @@ export const userProfile = async (req, res) => {
         u.id         AS user_id,
         u.email,
         u.status,
+        u.trust_score,
         u.created_at AS registered_at,
 
         p.id         AS profile_id,
@@ -93,4 +95,16 @@ export const userProfile = async (req, res) => {
     }
 
     res.json(user);
+};
+
+// Get specific user's calculated trust status details:
+export const getUserTrustStatus = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const status = await computeTrustStatus(userId);
+        res.json(status);
+    } catch (error) {
+        console.error("Error fetching user trust status:", error);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
 };
