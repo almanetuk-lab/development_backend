@@ -366,11 +366,78 @@ export const forgotPassword = async (req, res) => {
 
     await sendEmail({
       to: email,
-      subject: "Password Reset Request",
+      subject: "Reset your Intentional Connection password",
       html: `
-        <p>You requested a password reset.</p>
-        <p>Click the link below to reset your password (valid for 15 minutes):</p>
-        <a href="${resetLink}" target="_blank">${resetLink}</a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Reset Your Password</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f8;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f8;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#FF2A6D 0%,#ff6b9d 100%);padding:36px 40px;text-align:center;">
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;">Intentional Connection</h1>
+              <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;font-weight:500;">Your mindful matchmaking platform</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px 40px 32px;">
+              <h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#1a1a2e;">Reset your password</h2>
+              <p style="margin:0 0 24px;font-size:15px;color:#555;line-height:1.6;">
+                We received a request to reset the password for your account. Click the button below to create a new password. This link is valid for <strong>15 minutes</strong>.
+              </p>
+
+              <!-- CTA Button -->
+              <table cellpadding="0" cellspacing="0" style="margin:0 auto 32px;">
+                <tr>
+                  <td style="background:linear-gradient(135deg,#FF2A6D,#ff6b9d);border-radius:10px;">
+                    <a href="${resetLink}" target="_blank"
+                       style="display:inline-block;padding:14px 36px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;border-radius:10px;letter-spacing:0.2px;">
+                      Reset Password
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0 0 8px;font-size:13px;color:#888;line-height:1.6;">
+                If the button doesn't work, copy and paste the link below into your browser:
+              </p>
+              <p style="margin:0 0 28px;word-break:break-all;">
+                <a href="${resetLink}" style="color:#FF2A6D;font-size:13px;">${resetLink}</a>
+              </p>
+
+              <div style="background:#fff5f8;border:1px solid #ffd6e4;border-radius:10px;padding:16px 20px;">
+                <p style="margin:0;font-size:13px;color:#cc3366;line-height:1.6;">
+                  <strong>⚠ Didn't request this?</strong> If you didn't ask to reset your password, you can safely ignore this email. Your account remains secure.
+                </p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f9f9fb;border-top:1px solid #efefef;padding:24px 40px;text-align:center;">
+              <p style="margin:0 0 6px;font-size:12px;color:#aaa;">© ${new Date().getFullYear()} Intentional Connection. All rights reserved.</p>
+              <p style="margin:0;font-size:12px;color:#bbb;">This is an automated email — please do not reply directly.</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
       `,
     });
 
@@ -468,3 +535,124 @@ export const changePassword = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// ─── Contact Form ─────────────────────────────────────────────────────────────
+export const sendContactMessage = async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+
+    if (!name || !email || !subject || !message) {
+      return res.status(400).json({ error: "All fields are required." });
+    }
+
+    const adminEmail = process.env.ADMIN_CONTACT_EMAIL || process.env.EMAIL_FROM;
+
+    // 1. Notify admin with full message details
+    await sendEmail({
+      to: adminEmail,
+      subject: `[Contact Form] ${subject}`,
+      html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>New Contact Message</title></head>
+<body style="margin:0;padding:0;background:#f4f4f8;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#FF2A6D 0%,#ff6b9d 100%);padding:32px 40px;text-align:center;">
+            <h1 style="margin:0;color:#fff;font-size:20px;font-weight:800;">New Contact Message</h1>
+            <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;">Intentional Connection — Admin Notification</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:36px 40px;">
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
+                  <p style="margin:0;font-size:12px;color:#aaa;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">From</p>
+                  <p style="margin:4px 0 0;font-size:15px;font-weight:700;color:#1a1a2e;">${name} &lt;${email}&gt;</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
+                  <p style="margin:0;font-size:12px;color:#aaa;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">Subject</p>
+                  <p style="margin:4px 0 0;font-size:15px;font-weight:700;color:#1a1a2e;">${subject}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:16px 0;">
+                  <p style="margin:0;font-size:12px;color:#aaa;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">Message</p>
+                  <p style="margin:8px 0 0;font-size:15px;color:#444;line-height:1.7;white-space:pre-line;">${message}</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f9f9fb;border-top:1px solid #efefef;padding:20px 40px;text-align:center;">
+            <p style="margin:0;font-size:12px;color:#aaa;">© ${new Date().getFullYear()} Intentional Connection</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+      `,
+    });
+
+    // 2. Send confirmation email to the user
+    await sendEmail({
+      to: email,
+      subject: "We received your message — Intentional Connection",
+      html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Message Received</title></head>
+<body style="margin:0;padding:0;background:#f4f4f8;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#FF2A6D 0%,#ff6b9d 100%);padding:36px 40px;text-align:center;">
+            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;">Intentional Connection</h1>
+            <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;font-weight:500;">Your mindful matchmaking platform</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#1a1a2e;">Thanks for reaching out, ${name}!</h2>
+            <p style="margin:0 0 20px;font-size:15px;color:#555;line-height:1.7;">
+              We've received your message and our team will get back to you within <strong>1–2 business days</strong>.
+            </p>
+            <div style="background:#f9f9fb;border:1px solid #efefef;border-radius:12px;padding:20px 24px;margin-bottom:24px;">
+              <p style="margin:0 0 6px;font-size:12px;color:#aaa;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;">Your message</p>
+              <p style="margin:0;font-size:14px;color:#555;line-height:1.7;font-style:italic;">"${message.substring(0, 200)}${message.length > 200 ? '...' : ''}"</p>
+            </div>
+            <p style="margin:0;font-size:14px;color:#888;line-height:1.6;">
+              In the meantime, feel free to browse our <a href="${process.env.FRONTEND_URL}" style="color:#FF2A6D;font-weight:600;">platform</a> or check out our latest articles.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f9f9fb;border-top:1px solid #efefef;padding:24px 40px;text-align:center;">
+            <p style="margin:0 0 6px;font-size:12px;color:#aaa;">© ${new Date().getFullYear()} Intentional Connection. All rights reserved.</p>
+            <p style="margin:0;font-size:12px;color:#bbb;">This is an automated confirmation — our team will reply to this email.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+      `,
+    });
+
+    res.json({ success: true, message: "Message sent successfully." });
+  } catch (error) {
+    console.error("Contact form error:", error);
+    res.status(500).json({ error: "Failed to send message. Please try again." });
+  }
+};
+
