@@ -580,7 +580,11 @@ export const getAllMessages = async (req, res) => {
     }
     /* ⭐ SHRADDHA NEW CODE END */
     // 🔔 SOCKET EVENT
-    io.to(onlineUsers.get(String(receiver_id))).emit("new_message", savedMessage);
+    const receiverSocketId=onlineUsers.get(String(receiver_id))
+    const senderSocketId=onlineUsers.get(String(sender_id))
+    
+    if (receiverSocketId) io.to(receiverSocketId).emit("new_message", savedMessage);
+    if (senderSocketId) io.to(senderSocketId).emit("new_message", savedMessage);
 
     // 🔔 NOTIFICATION
     const notifResult = await pool.query(
@@ -599,7 +603,6 @@ export const getAllMessages = async (req, res) => {
       ],
     );
 
-    const receiverSocketId = onlineUsers.get(String(receiver_id));
     if (receiverSocketId && notifResult.rows.length > 0) {
       io.to(receiverSocketId).emit("new_notification", notifResult.rows[0]);
     }
