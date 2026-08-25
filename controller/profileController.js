@@ -79,35 +79,202 @@ export const updateProfile = async (req, res) => {
       longitude,
     } = req.body;
 
-    if (!email || !first_name || !last_name || !dob || age === undefined || age === null) {
+    // Required Fields Validation (only email, first_name, last_name are universally mandatory)
+    if (!email || !first_name || !last_name) {
       return res.status(400).json({
-        message: "Email, First name, Last name, DOB and Age are required",
+        error: "Email, First name, and Last name are required.",
+        message: "Email, First name, and Last name are required",
       });
     }
 
-    const userId = req.user.id
+    const userId = req.user.id;
+    // Check if dob and age already exist in database for this user
+    const existingProfile = await pool.query("SELECT dob, age FROM profiles WHERE user_id = $1", [userId]);
+    const hasExistingDob = existingProfile.rows.length > 0 && existingProfile.rows[0].dob;
+
+    if (hasExistingDob && (!dob || age === undefined || age === null || age === "")) {
+      return res.status(400).json({
+        error: "Date of Birth and Age cannot be cleared once they are set.",
+        message: "Date of Birth and Age are required",
+      });
+    }
+
+    // Sanitize values
+    const clean_first_name = typeof first_name === "string" ? first_name.trim() : "";
+    const clean_last_name = typeof last_name === "string" ? last_name.trim() : "";
+    const clean_email = typeof email === "string" ? email.trim() : "";
+    const clean_username = typeof username === "string" ? username.trim().toLowerCase() : "";
+
+    // 1. Core Profile Details Validation
+    if (clean_first_name.length < 2 || clean_first_name.length > 50) {
+      return res.status(400).json({ error: "First name must be between 2 and 50 characters.", message: "First name must be between 2 and 50 characters." });
+    }
+    const nameRegex = /^[a-zA-Z\s\-]+$/;
+    if (!nameRegex.test(clean_first_name)) {
+      return res.status(400).json({ error: "First name can only contain letters, spaces, and hyphens.", message: "First name can only contain letters, spaces, and hyphens." });
+    }
+
+    if (clean_last_name.length < 2 || clean_last_name.length > 50) {
+      return res.status(400).json({ error: "Last name must be between 2 and 50 characters.", message: "Last name must be between 2 and 50 characters." });
+    }
+    if (!nameRegex.test(clean_last_name)) {
+      return res.status(400).json({ error: "Last name can only contain letters, spaces, and hyphens.", message: "Last name can only contain letters, spaces, and hyphens." });
+    }
+
+    if (clean_email.length > 100) {
+      return res.status(400).json({ error: "Email address cannot exceed 100 characters.", message: "Email address cannot exceed 100 characters." });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(clean_email)) {
+      return res.status(400).json({ error: "Please enter a valid email address.", message: "Please enter a valid email address." });
+    }
+
+    if (clean_username) {
+      const usernameRegex = /^(?!.*\.\.)(?!\.)(?!.*\.$)[a-z0-9._]{3,30}$/;
+      if (!usernameRegex.test(clean_username)) {
+        return res.status(400).json({
+          error: "Username must be 3–30 characters, lowercase, and can contain letters, numbers, dots (.), or underscores (_).",
+          message: "Username must be 3–30 characters, lowercase, and can contain letters, numbers, dots (.), or underscores (_).",
+        });
+      }
+    }
+
+    if (dob) {
+      const dobDate = new Date(dob);
+      const today = new Date();
+      if (dobDate >= today) {
+        return res.status(400).json({ error: "Date of Birth must be in the past.", message: "Date of Birth must be in the past." });
+      }
+      let calculatedAge = today.getFullYear() - dobDate.getFullYear();
+      const monthDiff = today.getMonth() - dobDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dobDate.getDate())) {
+        calculatedAge--;
+      }
+      if (calculatedAge < 18) {
+        return res.status(400).json({ error: "You must be at least 18 years old.", message: "You must be at least 18 years old." });
+      }
+    }
+
+    if (age !== undefined && age !== null && age !== "") {
+      const ageNum = Number(age);
+      if (isNaN(ageNum) || ageNum < 18 || ageNum > 120) {
+        return res.status(400).json({ error: "Age must be a valid number between 18 and 120.", message: "Age must be a valid number between 18 and 120." });
+      }
+    }
+
+    // 2. Optional Fields Formats & Lengths Validation
+    if (phone) {
+      const clean_phone = String(phone).trim();
+      if (!/^[+0-9\s\-()]+$/.test(clean_phone)) {
+        return res.status(400).json({ error: "Phone number can only contain digits, spaces, hyphens, parentheses, and +.", message: "Phone number can only contain digits, spaces, hyphens, parentheses, and +." });
+      }
+      const digitsCount = clean_phone.replace(/[^0-9]/g, "").length;
+      if (digitsCount < 7 || digitsCount > 15) {
+        return res.status(400).json({ error: "Phone number should be between 7 and 15 digits long.", message: "Phone number should be between 7 and 15 digits long." });
+      }
+    }
+
+    // Length Checks
+    const maxLimits = [
+      { name: "headline", val: headline, max: 200 },
+      { name: "company", val: company, max: 100 },
+      { name: "position", val: position, max: 100 },
+      { name: "profession", val: profession, max: 100 },
+      { name: "city", val: city, max: 100 },
+      { name: "state", val: state, max: 100 },
+      { name: "country", val: country, max: 100 },
+      { name: "pincode", val: pincode, max: 20 },
+      { name: "address", val: address, max: 500 },
+      { name: "education_institution_name", val: education_institution_name, max: 150 },
+      { name: "zodiac_sign", val: zodiac_sign, max: 50 },
+      { name: "about", val: about, max: 1000 },
+      { name: "about_me", val: about_me, max: 1000 },
+    ];
+    for (const item of maxLimits) {
+      if (item.val && typeof item.val === "string" && item.val.length > item.max) {
+        return res.status(400).json({ error: `${item.name} cannot exceed ${item.max} characters.`, message: `${item.name} cannot exceed ${item.max} characters.` });
+      }
+    }
+
+    // Numeric checks
+    if (experience !== undefined && experience !== null && experience !== "") {
+      const expNum = Number(experience);
+      if (isNaN(expNum) || expNum < 0 || expNum > 80) {
+        return res.status(400).json({ error: "Experience must be a number between 0 and 80.", message: "Experience must be a number between 0 and 80." });
+      }
+    }
+
+    if (latitude !== undefined && latitude !== null && latitude !== "") {
+      const lat = Number(latitude);
+      if (isNaN(lat) || lat < -90 || lat > 90) {
+        return res.status(400).json({ error: "Latitude must be between -90 and 90.", message: "Latitude must be between -90 and 90." });
+      }
+    }
+
+    if (longitude !== undefined && longitude !== null && longitude !== "") {
+      const lon = Number(longitude);
+      if (isNaN(lon) || lon < -180 || lon > 180) {
+        return res.status(400).json({ error: "Longitude must be between -180 and 180.", message: "Longitude must be between -180 and 180." });
+      }
+    }
+
+    // 3. Dropdowns (Enums) Validation
+    const enumValidations = [
+      { name: "gender", val: gender, list: ["Male", "Female", "Non-Binary", "Other", "Male", "Female", "Other", "Non-Binary"] },
+      { name: "marital_status", val: marital_status, list: ["Single", "Married", "Divorced", "Widowed", "Other", "Separated"] },
+      { name: "professional_identity", val: professional_identity, list: ["STUDENT", "PROFESSIONAL", "ENTREPRENEUR", "FREELANCER", "Student", "Corporate Professional", "Entrepreneur", "Freelancer", "Consultant", "Trader", "Investor", "Family Business Owner", "Small Business Owner", "Creative Professional", "Healthcare Professional", "Public Service", "Government", "Other"] },
+      { name: "company_type", val: company_type, list: ["MNC", "Startup", "SME", "Government", "NGO", "Other"] },
+      { name: "education", val: education, list: ["No Formal Education", "Currently Studying", "High School", "Vocational / Trade School", "Associate Degree", "Bachelors Degree", "Masters Degree", "Doctorate", "HIGH_SCHOOL", "BACHELORS", "MASTERS", "PHD", "Other", "Bachelors", "Master", "Others"] },
+      { name: "freetime_style", val: freetime_style, list: ["Mostly social", "With Partner", "Balanced mix", "Low-key and restful"] },
+      { name: "health_activity_level", val: health_activity_level, list: ["Active", "Semi-active", "Light", "Minimal"] },
+      { name: "smoking", val: smoking, list: ["NO", "YES", "SOCIAL", "No", "Yes", "Socially"] },
+      { name: "drinking", val: drinking, list: ["NO", "YES", "SOCIAL", "No", "Yes", "Socially"] },
+      { name: "pets_preference", val: pets_preference, list: ["Want", "Don’t want", "Have and want more", "Have and don’t want more", "OPEN_OR_NOT_SURE_YET"] },
+      { name: "religious_belief", val: religious_belief, list: ["Hindu", "Muslim", "Christian", "Sikh", "Buddhist", "Jain", "Jewish", "Spiritual", "Atheist", "Agnostic", "Other", "Prefer not to say"] },
+      { name: "interested_in", val: interested_in, list: ["Man", "Woman", "Non-Binary", "Everyone"] },
+      { name: "relationship_goal", val: relationship_goal, list: ["Long-term", "Life Partner", "Dating with intent", "Friend", "Figuring it out"] },
+      { name: "children_preference", val: children_preference, list: ["WANT", "DONT_WANT", "HAVE_AND_WANT_MORE", "HAVE_AND_DONT_WANT_MORE", "OPEN_OR_NOT_SURE_YET", "Want", "Don’t want", "Have and want more", "Have and don't want more", "Open / Not sure yet"] },
+      { name: "self_expression", val: self_expression, list: ["Clear and direct", "Reflective and calm", "Expressive once I trust", "Reserved until I feel safe"] },
+      { name: "interaction_style", val: interaction_style, list: ["Light and engaging", "Deep and thought-provoking", "Reserved unless invited", "Other"] },
+      { name: "work_environment", val: work_environment, list: ["Remote", "Hybrid", "Office/Location based", "On-the-go", "Other"] },
+      { name: "work_rhythm", val: work_rhythm, list: ["Regular", "Flexible", "Intense", "Seasonal", "Structured routine", "Balanced with busy phases", "High intensity", "Project-based"] },
+      { name: "career_decision_style", val: career_decision_style, list: ["Analytical", "Intuitive", "Collaborative", "Independent", "Security-focused", "Balanced", "Opportunity-driven", "Risk-positive"] },
+      { name: "work_demand_response", val: work_demand_response, list: ["Proactive", "Reactive", "Balanced", "Selective", "Adjusting plans quickly", "Keeping structure", "Taking space to rebalance", "Communicating clearly and finding a middle ground"] },
+      { name: "preference_of_closeness", val: preference_of_closeness, list: ["High", "Medium", "Low", "Variable", "More time together", "A mix of space and closeness", "Regular personal time", "Not yet sure", "Open / Not yet sure"] },
+      { name: "love_language_affection", val: love_language_affection, list: ["Physical Touch", "Words of Affirmation", "Quality Time", "Acts of Service", "Thoughtful Gifts"] },
+    ];
+    for (const item of enumValidations) {
+      if (item.val && item.val !== "") {
+        if (!item.list.includes(item.val)) {
+          return res.status(400).json({ error: `Invalid selection for ${item.name}.`, message: `Invalid selection for ${item.name}.` });
+        }
+      }
+    }
+
     console.log("ABOUT ME:", about_me);
     const imageUrl = req.file ? req.file.path : null;
 
     // HEIGHT LOGIC (ONLY ONE COLUMN)
     // =========================
-    let height;
+    let height = null;
 
-    if (height_ft !== undefined || height_in !== undefined) {
-      if (height_ft === undefined || height_in === undefined) {
-        return res.status(400).json({
-          message: "Both height_ft and height_in are required",
-        });
-      }
+    const hasFt = height_ft !== undefined && height_ft !== null && height_ft !== "";
+    const hasIn = height_in !== undefined && height_in !== null && height_in !== "";
 
+    if (hasFt && hasIn) {
       const ft = Number(height_ft);
       const inch = Number(height_in);
 
-      if (Number.isNaN(ft) || Number.isNaN(inch) || inch < 0 || inch > 11) {
-        return res.status(400).json({ message: "Invalid height" });
+      if (Number.isNaN(ft) || Number.isNaN(inch) || ft < 3 || ft > 8 || inch < 0 || inch > 11) {
+        return res.status(400).json({ error: "Invalid height values. Feet must be between 3 and 8, inches must be between 0 and 11.", message: "Invalid height" });
       }
 
       height = ft * 12 + inch;
+    } else if (hasFt || hasIn) {
+      return res.status(400).json({
+        error: "Both height_ft and height_in are required if setting height.",
+        message: "Both height_ft and height_in are required",
+      });
     }
 
     // --- DEEP LOGGING INITIATED ---

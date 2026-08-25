@@ -25,7 +25,16 @@ export const registerUser = async (req, res) => {
       about_me,
     } = req.body;
 
-    // 🔹 Basic validation - UPDATED
+    // Sanitize, type-check, and trim string inputs to avoid crash/bypass issues
+    first_name = typeof first_name === "string" ? first_name.trim() : "";
+    last_name = typeof last_name === "string" ? last_name.trim() : "";
+    email = typeof email === "string" ? email.trim() : "";
+    password = typeof password === "string" ? password : "";
+    profession = typeof profession === "string" ? profession.trim() : "";
+    username = typeof username === "string" ? username.trim().toLowerCase() : "";
+    about_me = typeof about_me === "string" ? about_me.trim() : "";
+
+    // 🔹 Basic validation - Ensure all required fields exist
     if (
       !first_name ||
       !last_name ||
@@ -35,21 +44,59 @@ export const registerUser = async (req, res) => {
       !username ||
       !about_me
     ) {
+      return res.status(400).json({
+        error: "All fields are required. Please fill in first name, last name, email, password, profession, username, and about me.",
+      });
     }
-    // return res.status(400).json({
-    //   error:
-    //     "Please fill all required fields including first name, last name, username, and about me.",
-    // });
 
-    // const usernameRegex = /^[a-zA-Z0-9_]{3,30}$/;
-    // if (!usernameRegex.test(username)) {
-    //   return res.status(400).json({
-    //     error:
-    //       "Username must be 3-30 characters and contain only letters, numbers, and underscores.",
-    //   });
-    // }
-    // Normalize username (Instagram behavior)
-    username = username.trim().toLowerCase();
+    // First Name validation
+    if (first_name.length < 2 || first_name.length > 50) {
+      return res.status(400).json({ error: "First name must be between 2 and 50 characters." });
+    }
+    const nameRegex = /^[a-zA-Z\s\-]+$/;
+    if (!nameRegex.test(first_name)) {
+      return res.status(400).json({ error: "First name can only contain letters, spaces, and hyphens." });
+    }
+
+    // Last Name validation
+    if (last_name.length < 2 || last_name.length > 50) {
+      return res.status(400).json({ error: "Last name must be between 2 and 50 characters." });
+    }
+    if (!nameRegex.test(last_name)) {
+      return res.status(400).json({ error: "Last name can only contain letters, spaces, and hyphens." });
+    }
+
+    // Email validation
+    if (email.length > 100) {
+      return res.status(400).json({ error: "Email address cannot exceed 100 characters." });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+
+    // Profession validation
+    if (profession.length < 2 || profession.length > 100) {
+      return res.status(400).json({ error: "Profession must be between 2 and 100 characters." });
+    }
+    const professionRegex = /^[a-zA-Z0-9\s\-\.\,]+$/;
+    if (!professionRegex.test(profession)) {
+      return res.status(400).json({ error: "Profession can only contain letters, numbers, spaces, hyphens, periods, and commas." });
+    }
+
+    // Password validation (8-100 characters, complexity)
+    if (password.length < 8 || password.length > 100) {
+      return res.status(400).json({ error: "Password must be between 8 and 100 characters." });
+    }
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,100}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({ error: "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character (@$!%*?&)." });
+    }
+
+    // About Me validation
+    if (about_me.length < 10 || about_me.length > 1000) {
+      return res.status(400).json({ error: "About Me section must be between 10 and 1000 characters to build your psychological profile." });
+    }
 
     // // Reserved usernames (cannot be used)
     const reservedUsernames = [
@@ -539,10 +586,44 @@ export const changePassword = async (req, res) => {
 // ─── Contact Form ─────────────────────────────────────────────────────────────
 export const sendContactMessage = async (req, res) => {
   try {
-    const { name, email, subject, message } = req.body;
+    let { name, email, subject, message } = req.body;
+
+    // Sanitize string inputs
+    name = typeof name === "string" ? name.trim() : "";
+    email = typeof email === "string" ? email.trim() : "";
+    subject = typeof subject === "string" ? subject.trim() : "";
+    message = typeof message === "string" ? message.trim() : "";
 
     if (!name || !email || !subject || !message) {
-      return res.status(400).json({ error: "All fields are required." });
+      return res.status(400).json({ error: "All fields are required. Please fill in name, email, subject, and message." });
+    }
+
+    // Name validation
+    if (name.length < 2 || name.length > 100) {
+      return res.status(400).json({ error: "Name must be between 2 and 100 characters." });
+    }
+    const nameRegex = /^[a-zA-Z\s\-]+$/;
+    if (!nameRegex.test(name)) {
+      return res.status(400).json({ error: "Name can only contain letters, spaces, and hyphens." });
+    }
+
+    // Email validation
+    if (email.length > 100) {
+      return res.status(400).json({ error: "Email address cannot exceed 100 characters." });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+
+    // Subject validation
+    if (subject.length < 3 || subject.length > 200) {
+      return res.status(400).json({ error: "Subject must be between 3 and 200 characters." });
+    }
+
+    // Message validation
+    if (message.length < 10 || message.length > 5000) {
+      return res.status(400).json({ error: "Message must be between 10 and 5000 characters." });
     }
 
     const adminEmail = process.env.ADMIN_CONTACT_EMAIL || process.env.EMAIL_FROM;
