@@ -3,6 +3,7 @@ import express from "express";
 import { adminLogin, approveUser, deactivateUser, getAllUserDetails, getAllUsers, onHoldUser } from "../controller/adminController.js";
 import { verifyAdminToken } from "../middleware/verifyAdminToken.js";
 import { validateAccessToken } from "../middleware/verfiytoken.js";
+import { getAuditLogs } from "../controller/adminAuditController.js";
 
 const router = express.Router();
 
@@ -13,5 +14,6 @@ router.post("/api/admin/on-hold", verifyAdminToken, onHoldUser); // On Hold User
 router.post("/api/admin/deactivate", verifyAdminToken, deactivateUser); // Deactivate User
 router.get("/api/admin/users", validateAccessToken, getAllUsers); // Get All Users
 router.get("/api/admin/getdetails/:id", validateAccessToken, getAllUserDetails);  // Get User Details by ID
+router.get("/api/admin/audit-logs", verifyAdminToken, getAuditLogs); // Get Admin Audit Logs
 
 export default router;

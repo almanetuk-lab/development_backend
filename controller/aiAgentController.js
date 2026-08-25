@@ -1,5 +1,6 @@
 import { getAgentConfig, upsertAgentConfig } from "../services/aiAgentService.js";
 import { pool } from "../config/db.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 
 // Thresholds must match aiAgentService.js constants
 const COMFORT_OVERALL_THRESHOLD       = 70;
@@ -44,6 +45,8 @@ export const updateAiAgentConfig = async (req, res) => {
       enabled,
       instructions: trimmedInstructions || null,
     });
+
+    logAuditEvent(req.user.id, "AI_AGENT_TOGGLE", { enabled, instructions_length: (trimmedInstructions || "").length }, req);
 
     return res.json({
       message: "AI agent settings updated",

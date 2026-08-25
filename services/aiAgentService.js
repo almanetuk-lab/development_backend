@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { io, onlineUsers } from "../server.js";
+import { logAuditEvent } from "../utils/auditLogger.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
 import { createNotification } from "../controller/notificationController.js";
 
@@ -61,20 +62,34 @@ export const upsertAgentConfig = async (userId, { enabled, instructions }) => {
 // Plan check (receiver must have active plan)
 // ─────────────────────────────────────────────
 
-export const receiverHasActivePlan = async (userId) => {
+export const receiverHasAiAgentAccess = async (userId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT expires_at
-       FROM user_plans
-       WHERE user_id = $1 AND status = 'active'
-       ORDER BY expires_at DESC
+      `SELECT up.expires_at, p.allowed_features
+       FROM user_plans up
+       LEFT JOIN plans p ON up.plan_id = p.id
+       WHERE up.user_id = $1 AND up.status = 'active'
+       ORDER BY up.expires_at DESC
        LIMIT 1`,
       [userId]
     );
     if (rows.length === 0) return false;
-    return new Date(rows[0].expires_at) > new Date();
+    const isPlanActive = new Date(rows[0].expires_at) > new Date();
+    if (!isPlanActive) return false;
+
+    const allowedFeatures = rows[0].allowed_features;
+    if (allowedFeatures === null || allowedFeatures === undefined) {
+      return true; // Legacy plan, allow AI Agent by default
+    }
+    if (Array.isArray(allowedFeatures)) {
+      return allowedFeatures.includes("ai_agent");
+    }
+    if (typeof allowedFeatures === 'object') {
+      return !!allowedFeatures["ai_agent"];
+    }
+    return false;
   } catch (err) {
-    console.error(`❌ [AIAgentService] receiverHasActivePlan(${userId}):`, err.message);
+    console.error(`❌ [AIAgentService] receiverHasAiAgentAccess(${userId}):`, err.message);
     return false;
   }
 };
@@ -282,6 +297,7 @@ export const persistAiMessage = async ({ senderId, receiverId, content }) => {
     [senderId, receiverId, content]
   );
   const aiMessage = rows[0];
+  logAuditEvent(senderId, "AI_AGENT_RESPONSE", { receiver_id: receiverId, message_id: aiMessage.id });
 
   // Emit via Socket.IO (same event as human messages)
   io.emit("new_message", aiMessage);
@@ -602,8 +618,8 @@ export const runAiConversation = async (humanMessage) => {
       console.log(`🤖 [AIConversation] AI disabled for receiver ${originalReceiverId}`);
       return;
     }
-    if (!(await receiverHasActivePlan(originalReceiverId))) {
-      console.log(`🤖 [AIConversation] No active plan for receiver ${originalReceiverId}`);
+    if (!(await receiverHasAiAgentAccess(originalReceiverId))) {
+      console.log(`🤖 [AIConversation] No active plan or AI Agent access for receiver ${originalReceiverId}`);
       return;
     }
 
@@ -649,7 +665,7 @@ export const runAiConversation = async (humanMessage) => {
 
     // ── Phase 2: Determine mode ──
     const senderConfig = await getAgentConfig(originalSenderId);
-    const bothAiEnabled = senderConfig.enabled && (await receiverHasActivePlan(originalSenderId));
+    const bothAiEnabled = senderConfig.enabled && (await receiverHasAiAgentAccess(originalSenderId));
     const maxMessages = bothAiEnabled ? MAX_AI_MESSAGES_PER_BURST : 1;
 
     console.log(`🤖 [AIConversation] Mode: ${bothAiEnabled ? `BOTH AI (max ${maxMessages})` : 'SINGLE REPLY'}`);
@@ -670,9 +686,9 @@ export const runAiConversation = async (humanMessage) => {
         console.log(`🤖 [AIConversation] AI disabled for ${currentSenderId} at round ${i + 1} — stopping`);
         break;
       }
-      // Re-check: active plan?
-      if (!(await receiverHasActivePlan(currentSenderId))) {
-        console.log(`🤖 [AIConversation] No plan for ${currentSenderId} at round ${i + 1} — stopping`);
+      // Re-check: active plan and AI Agent access?
+      if (!(await receiverHasAiAgentAccess(currentSenderId))) {
+        console.log(`🤖 [AIConversation] No plan or AI Agent access for ${currentSenderId} at round ${i + 1} — stopping`);
         break;
       }
       // Check & consume plan quota
