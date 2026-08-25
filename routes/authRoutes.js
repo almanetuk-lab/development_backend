@@ -1,5 +1,5 @@
 import express from "express";
-import { forgotPassword, loginUser, registerUser, resetPassword, changePassword, sendContactMessage } from "../controller/authController.js";
+import { forgotPassword, loginUser, registerUser, resetPassword, changePassword, sendContactMessage, subscribeNewsletter } from "../controller/authController.js";
 import { validateRefreshToken, validateAccessToken } from "../middleware/verfiytoken.js";
 
 const router = express.Router();
@@ -11,5 +11,6 @@ router.post("/api/reset-password/:token", resetPassword);  // Reset Password
 router.get("/api/refreshtoken", validateRefreshToken);  // Refresh Token
 router.post("/api/auth/change-password", validateAccessToken, changePassword); // Change Password (Authenticated)
 router.post("/api/contact", sendContactMessage); // Contact Form
+router.post("/api/newsletter/subscribe", subscribeNewsletter); // Newsletter Subscription
 
 export default router;
