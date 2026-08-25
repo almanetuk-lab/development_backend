@@ -206,7 +206,7 @@ export const generateAgentReply = async ({ ownerUserId, partnerUserId, incomingM
     const config = await getAgentConfig(ownerUserId);
     if (!config.enabled) return null;
     // Note: is_ai_generated guard removed — loop protection is handled by runAiConversation's counter
-    const hasPlan = await receiverHasActivePlan(ownerUserId);
+    const hasPlan = await receiverHasAiAgentAccess(ownerUserId);
     if (!hasPlan) return null;
 
     const { profile, twin, history } = await loadAgentContext(ownerUserId, partnerUserId);
