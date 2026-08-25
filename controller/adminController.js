@@ -351,6 +351,100 @@ export const getAllUserDetails = async (req, res) => {
 // // await pool.query('INSERT INTO admins (full_name, email, password, role) VALUES ($1, $2, $3, $4)',values);
 // // }
 
+export const getContactMessages = async (req, res) => {
+  try {
+    const query = `
+      SELECT id, name, email, subject, message, created_at
+      FROM contact_messages
+      ORDER BY created_at DESC;
+    `;
+    const { rows } = await pool.query(query);
+    return res.status(200).json({
+      status: "success",
+      messages: rows,
+    });
+  } catch (error) {
+    console.error("Admin get contact messages error:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Failed to fetch contact messages",
+      error: error.message,
+    });
+  }
+};
+
+export const getNewsletterSubscriptions = async (req, res) => {
+  try {
+    const query = `
+      SELECT id, email, created_at
+      FROM newsletter_subscriptions
+      ORDER BY created_at DESC;
+    `;
+    const { rows } = await pool.query(query);
+    return res.status(200).json({
+      status: "success",
+      subscriptions: rows,
+    });
+  } catch (error) {
+    console.error("Admin get newsletter subscriptions error:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Failed to fetch newsletter subscriptions",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteContactMessage = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = `DELETE FROM contact_messages WHERE id = $1 RETURNING *;`;
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: "Contact message not found",
+      });
+    }
+    return res.status(200).json({
+      status: "success",
+      message: "Contact message deleted successfully",
+    });
+  } catch (error) {
+    console.error("Admin delete contact message error:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Failed to delete contact message",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteNewsletterSubscription = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const query = `DELETE FROM newsletter_subscriptions WHERE id = $1 RETURNING *;`;
+    const result = await pool.query(query, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        status: "error",
+        message: "Newsletter subscription not found",
+      });
+    }
+    return res.status(200).json({
+      status: "success",
+      message: "Newsletter subscription deleted successfully",
+    });
+  } catch (error) {
+    console.error("Admin delete newsletter subscription error:", error);
+    return res.status(500).json({
+      status: "error",
+      message: "Failed to delete newsletter subscription",
+      error: error.message,
+    });
+  }
+};
+
 
 
 

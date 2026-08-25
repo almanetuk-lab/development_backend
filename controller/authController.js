@@ -626,6 +626,12 @@ export const sendContactMessage = async (req, res) => {
       return res.status(400).json({ error: "Message must be between 10 and 5000 characters." });
     }
 
+    // Insert contact message into database
+    await pool.query(
+      `INSERT INTO contact_messages (name, email, subject, message) VALUES ($1, $2, $3, $4)`,
+      [name, email, subject, message]
+    );
+
     const adminEmail = process.env.ADMIN_CONTACT_EMAIL || process.env.EMAIL_FROM;
 
     // 1. Notify admin with full message details
@@ -734,6 +740,77 @@ export const sendContactMessage = async (req, res) => {
   } catch (error) {
     console.error("Contact form error:", error);
     res.status(500).json({ error: "Failed to send message. Please try again." });
+  }
+};
+
+// ─── Newsletter Subscription ──────────────────────────────────────────────────
+export const subscribeNewsletter = async (req, res) => {
+  try {
+    let { email } = req.body;
+    email = typeof email === "string" ? email.trim().toLowerCase() : "";
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required." });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: "Please enter a valid email address." });
+    }
+
+    // Insert into database (DO NOTHING if email already subscribed)
+    await pool.query(
+      `INSERT INTO newsletter_subscriptions (email) VALUES ($1) ON CONFLICT (email) DO NOTHING`,
+      [email]
+    );
+
+    // Send confirmation email to subscriber
+    try {
+      await sendEmail({
+        to: email,
+        subject: "Subscribed to Intentional Connection Newsletter",
+        html: `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Subscribed</title></head>
+<body style="margin:0;padding:0;background:#f4f4f8;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f8;padding:40px 0;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#FF2A6D 0%,#ff6b9d 100%);padding:36px 40px;text-align:center;">
+            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;">Intentional Connection</h1>
+            <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;font-weight:500;">Your mindful matchmaking platform</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#1a1a2e;">You're Subscribed!</h2>
+            <p style="margin:0 0 20px;font-size:15px;color:#555;line-height:1.7;">
+              Thank you for subscribing to our newsletter! We'll keep you updated with compatibility matches, feature updates, relationship tips, and event launches.
+            </p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background:#f9f9fb;border-top:1px solid #efefef;padding:24px 40px;text-align:center;">
+            <p style="margin:0;font-size:12px;color:#aaa;">© ${new Date().getFullYear()} Intentional Connection. All rights reserved.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+        `,
+      });
+    } catch (emailErr) {
+      console.error("Newsletter subscription confirmation email failed to send:", emailErr);
+    }
+
+    res.json({ success: true, message: "Subscribed successfully!" });
+  } catch (error) {
+    console.error("Newsletter subscription error:", error);
+    res.status(500).json({ error: "Failed to subscribe. Please try again." });
   }
 };
 

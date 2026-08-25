@@ -25,6 +25,22 @@ export const fetchAdminReport = async (fromDate, toDate, groupBy = "month") => {
     WHERE created_at BETWEEN $1 AND $2
   `;
 
+  // Newsletter Subscriptions Query
+  const newsletterQuery = `
+    SELECT COUNT(*) AS total_newsletter_subscribers
+    FROM newsletter_subscriptions
+    WHERE created_at BETWEEN $1 AND $2
+  `;
+
+  // Range Contacts Query
+  const contactsRangeQuery = `
+    SELECT COUNT(*) AS total_contacts
+    FROM contact_messages
+    WHERE created_at BETWEEN $1 AND $2
+  `;
+
+
+
   const usersTimelineQuery = `
     SELECT 
       DATE_TRUNC($3, created_at)::date AS period,
@@ -125,6 +141,8 @@ export const fetchAdminReport = async (fromDate, toDate, groupBy = "month") => {
     users,
     messages,
     subscriptions,
+    newsletter,
+    contactsRange,
     usersTimeline,
     messagesTimeline,
     plansTimeline,
@@ -134,6 +152,8 @@ export const fetchAdminReport = async (fromDate, toDate, groupBy = "month") => {
     pool.query(usersQuery, [fromDate, toDate]),
     pool.query(messagesQuery, [fromDate, toDate]),
     pool.query(subscriptionsQuery, [fromDate, toDate]),
+    pool.query(newsletterQuery, [fromDate, toDate]),
+    pool.query(contactsRangeQuery, [fromDate, toDate]),
     pool.query(usersTimelineQuery, [fromDate, toDate, groupBy]),
     pool.query(messagesTimelineQuery, [fromDate, toDate, groupBy]),
     pool.query(plansTimelineQuery, [fromDate, toDate, groupBy]),
@@ -146,6 +166,8 @@ export const fetchAdminReport = async (fromDate, toDate, groupBy = "month") => {
       users: users.rows[0],
       messages: messages.rows[0],
       subscriptions: subscriptions.rows[0],
+      newsletter: newsletter.rows[0],
+      contacts: contactsRange.rows[0],
     },
     timeline: {
       users: usersTimeline.rows,

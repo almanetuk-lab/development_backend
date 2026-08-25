@@ -139,6 +139,31 @@ export const testConnection = async () => {
       CREATE INDEX IF NOT EXISTS idx_security_audit_logs_action ON security_audit_logs (action);
     `);
     console.log("🛡️ security_audit_logs table and indexes verified.");
+
+    // Dynamic table initialization for contact_messages
+    console.log("📬 Verifying contact_messages table...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contact_messages (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        subject VARCHAR(200) NOT NULL,
+        message TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log("📬 contact_messages table verified.");
+
+    // Dynamic table initialization for newsletter_subscriptions
+    console.log("📰 Verifying newsletter_subscriptions table...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS newsletter_subscriptions (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log("📰 newsletter_subscriptions table verified.");
   } catch (err) {
     console.error("❌ Database connection error:", err.message);
   }
