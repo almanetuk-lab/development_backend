@@ -326,7 +326,7 @@
 
 import dotenv from "dotenv";
 import { v4 as uuidv4 } from "uuid";
-import { io, onlineUsers } from "../server.js";
+import { io } from "../server.js";
 import { pool } from "../config/db.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import {
@@ -579,12 +579,9 @@ export const getAllMessages = async (req, res) => {
       );
     }
     /* ⭐ SHRADDHA NEW CODE END */
-    // 🔔 SOCKET EVENT
-    const receiverSocketId=onlineUsers.get(String(receiver_id))
-    const senderSocketId=onlineUsers.get(String(sender_id))
-    
-    if (receiverSocketId) io.to(receiverSocketId).emit("new_message", savedMessage);
-    if (senderSocketId) io.to(senderSocketId).emit("new_message", savedMessage);
+    // 🔔 SOCKET EVENT (room-based — delivers to all tabs/devices)
+    io.to(String(receiver_id)).emit("new_message", savedMessage);
+    io.to(String(sender_id)).emit("new_message", savedMessage);
 
     // 🔔 NOTIFICATION
     const notifResult = await pool.query(
@@ -603,8 +600,8 @@ export const getAllMessages = async (req, res) => {
       ],
     );
 
-    if (receiverSocketId && notifResult.rows.length > 0) {
-      io.to(receiverSocketId).emit("new_notification", notifResult.rows[0]);
+    if (notifResult.rows.length > 0) {
+      io.to(String(receiver_id)).emit("new_notification", notifResult.rows[0]);
     }
 
     // Fire-and-forget AI conversation orchestrator (handles single-reply + AI-to-AI)
@@ -672,9 +669,8 @@ export const addReaction = async (req, res) => {
       emoji
     );
 
-    const socketId = onlineUsers.get(String(reactionReceiverId));
-    if (socketId && createdNotif) {
-      io.to(socketId).emit("new_notification", createdNotif);
+    if (createdNotif) {
+      io.to(String(reactionReceiverId)).emit("new_notification", createdNotif);
     }
 
     io.emit("new_reaction", reaction);

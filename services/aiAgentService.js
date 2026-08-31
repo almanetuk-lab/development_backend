@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
-import { io, onlineUsers } from "../server.js";
+import { io } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
 import { createNotification } from "../controller/notificationController.js";
@@ -326,10 +326,9 @@ export const persistAiMessage = async ({ senderId, receiverId, content }) => {
     ]
   );
 
-  // Push notification to receiver if online
-  const receiverSocketId = onlineUsers.get(String(receiverId));
-  if (receiverSocketId && notifResult.rows.length > 0) {
-    io.to(receiverSocketId).emit("new_notification", notifResult.rows[0]);
+  // Push notification to receiver (room-based — delivers to all tabs/devices)
+  if (notifResult.rows.length > 0) {
+    io.to(String(receiverId)).emit("new_notification", notifResult.rows[0]);
   }
 
   console.log(`📨 [AIAgentService] AI message persisted and emitted (sender: ${senderId}, receiver: ${receiverId})`);
@@ -340,16 +339,13 @@ export const persistAiMessage = async ({ senderId, receiverId, content }) => {
 // Typing indicator helper
 // ─────────────────────────────────────────────
 
-// Emit ai_typing event to a specific user's socket (if they are online)
+// Emit ai_typing event to a specific user (room-based — all tabs/devices)
 const emitAiTyping = (toUserId, aiOwnerId, isTyping) => {
-  const socketId = onlineUsers.get(String(toUserId));
-  if (socketId) {
-    io.to(socketId).emit("ai_typing", {
-      aiUserId: aiOwnerId,  // the user whose AI is generating (User B)
-      isTyping,
-    });
-    console.log(`⌨️  [AIAgentService] ai_typing=${isTyping} → socket of user ${toUserId} (AI owner: ${aiOwnerId})`);
-  }
+  io.to(String(toUserId)).emit("ai_typing", {
+    aiUserId: aiOwnerId,  // the user whose AI is generating (User B)
+    isTyping,
+  });
+  console.log(`⌨️  [AIAgentService] ai_typing=${isTyping} → user ${toUserId} (AI owner: ${aiOwnerId})`);
 };
 
 // ─────────────────────────────────────────────
@@ -366,11 +362,8 @@ const emitAiError = (toUserIds, { code, message, context }) => {
   };
   const ids = Array.isArray(toUserIds) ? toUserIds : [toUserIds];
   for (const uid of ids) {
-    const socketId = onlineUsers.get(String(uid));
-    if (socketId) {
-      io.to(socketId).emit("ai_agent_error", payload);
-      console.log(`🚨 [AIAgentService] ai_agent_error → user ${uid}: ${payload.code}`);
-    }
+    io.to(String(uid)).emit("ai_agent_error", payload);
+    console.log(`🚨 [AIAgentService] ai_agent_error → user ${uid}: ${payload.code}`);
   }
 };
 
@@ -581,10 +574,8 @@ const sendBurstSummaryNotification = async (userAId, userBId, aiMessageCount) =>
       [userBId, "🤖 AI Conversation", `Your AI agent exchanged ${aiMessageCount} messages with ${nameOfA}`, "Message", userAId, nameOfA]
     );
 
-    const socketA = onlineUsers.get(String(userAId));
-    const socketB = onlineUsers.get(String(userBId));
-    if (socketA && notifA.rows.length > 0) io.to(socketA).emit("new_notification", notifA.rows[0]);
-    if (socketB && notifB.rows.length > 0) io.to(socketB).emit("new_notification", notifB.rows[0]);
+    if (notifA.rows.length > 0) io.to(String(userAId)).emit("new_notification", notifA.rows[0]);
+    if (notifB.rows.length > 0) io.to(String(userBId)).emit("new_notification", notifB.rows[0]);
 
     console.log(`🔔 [AIAgentService] Burst summary sent (${aiMessageCount} msgs between ${userAId} ↔ ${userBId})`);
   } catch (err) {
@@ -650,16 +641,10 @@ export const runAiConversation = async (humanMessage) => {
       ]);
 
       const payload = { sender_id: originalSenderId, receiver_id: originalReceiverId };
-      const sSock = onlineUsers.get(String(originalSenderId));
-      const rSock = onlineUsers.get(String(originalReceiverId));
-      if (sSock) {
-        io.to(sSock).emit("incompatible_match", payload);
-        if (senderNotif) io.to(sSock).emit("new_notification", senderNotif);
-      }
-      if (rSock) {
-        io.to(rSock).emit("incompatible_match", payload);
-        if (receiverNotif) io.to(rSock).emit("new_notification", receiverNotif);
-      }
+      io.to(String(originalSenderId)).emit("incompatible_match", payload);
+      if (senderNotif) io.to(String(originalSenderId)).emit("new_notification", senderNotif);
+      io.to(String(originalReceiverId)).emit("incompatible_match", payload);
+      if (receiverNotif) io.to(String(originalReceiverId)).emit("new_notification", receiverNotif);
       return;
     }
 
