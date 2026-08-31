@@ -240,7 +240,15 @@ io.on("connection", (socket) => {
   });
 });
 
-//  Function to send notification
+//  Root endpoint health check
+app.get("/", (req, res) => {
+  res.json({ status: "healthy", message: "Intentional Connection API is running!" });
+});
+
+//  Existing routes — unchanged
+app.use("/", authRoutes);
+
+//  Function to send notification (declared after routes to avoid TDZ with ES module imports)
 export const sendNotification = async (userId, title, message) => {
   try {
     // Save in notifications table
@@ -259,14 +267,6 @@ export const sendNotification = async (userId, title, message) => {
     console.error(" Error sending notification:", err);
   }
 };
-
-//  Root endpoint health check
-app.get("/", (req, res) => {
-  res.json({ status: "healthy", message: "Intentional Connection API is running!" });
-});
-
-//  Existing routes — unchanged
-app.use("/", authRoutes);
 app.use("/", profileRoutes);
 app.use("/", adminRoutes);
 app.use("/", searchRoutes);

@@ -5,6 +5,7 @@ import {
   computeTrustStatus,
   adjustTrustScore,
   detectActiveGhostingAlert,
+  applyGhostingPenalty,
 } from "../services/trustService.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -232,6 +233,10 @@ export const getHandshakeHistory = async (req, res) => {
  * GET /api/handshake/trust-status
  * Returns the caller's Trust Score, Trust Level, Engagement Status,
  * Ghosting Risk, and any active ghosting alert for the UI badge/popup.
+ *
+ * Module 8 fix: if an active ghosting alert is detected and the penalty has
+ * not yet been applied for this session, auto-apply the penalty and update
+ * the Digital Twin — no manual user action required.
  */
 export const getTrustStatus = async (req, res) => {
   try {
@@ -241,6 +246,18 @@ export const getTrustStatus = async (req, res) => {
       computeTrustStatus(userId),
       detectActiveGhostingAlert(userId),
     ]);
+
+    // ── Auto-trigger: apply ghosting penalty + twin update if alert is active ──
+    if (ghostingAlert) {
+      // Non-blocking — fire and forget so the response is not delayed
+      applyGhostingPenalty(
+        userId,
+        ghostingAlert.partnerId,
+        ghostingAlert.sessionId
+      ).catch((err) =>
+        console.warn("[Module 8] Auto-ghosting penalty failed (non-blocking):", err.message)
+      );
+    }
 
     return res.status(200).json({
       message: "Trust status retrieved successfully",
@@ -262,9 +279,12 @@ const GHOSTING_PENALTY = parseInt(process.env.GHOSTING_PENALTY_POINTS) || 20;
  * Body: { sessionId, reason, customReason? }
  *
  * - Applies ghosting penalty to the user.
- * - For predefined reasons: writes reason directly to the Digital Twin (no Gemini).
- * - For "Other" or custom reasons: calls Gemini to generate an insight and
- *   appends it to the Digital Twin's behavioral summary.
+ * - For predefined reasons: appends a structured event to twin_data.memory.events[] (no Gemini).
+ * - For "Other" or custom reasons: calls Gemini to generate a 1-sentence behavioural
+ *   insight and appends it to the Digital Twin's memory events array.
+ *
+ * Fix (Module 8): previously wrote to a non-existent `behavioral_summary` column.
+ * Now correctly writes into the twin_data JSONB memory structure.
  */
 export const ghostingRespond = async (req, res) => {
   try {
@@ -278,9 +298,9 @@ export const ghostingRespond = async (req, res) => {
     // 1. Apply ghosting penalty
     await adjustTrustScore(userId, -GHOSTING_PENALTY, `Ghosting: ${reason}`, sessionId || null);
 
-    // 2. Identify Digital Twin for this user
+    // 2. Fetch Digital Twin (twin_data JSONB — the correct column)
     const twinResult = await pool.query(
-      "SELECT id, behavioral_summary FROM digital_twins WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1",
+      "SELECT id, twin_data FROM digital_twins WHERE user_id = $1 LIMIT 1",
       [userId]
     );
 
@@ -289,22 +309,35 @@ export const ghostingRespond = async (req, res) => {
     }
 
     const twin = twinResult.rows[0];
-    let updatedSummary = twin.behavioral_summary || "";
+    const twinData = twin.twin_data || {};
+
+    // Ensure memory structure exists
+    if (!twinData.memory) twinData.memory = { events: [], handshakes: [], relationship_learning: [] };
+    if (!Array.isArray(twinData.memory.events)) twinData.memory.events = [];
 
     const isPredefined = PREDEFINED_REASONS.includes(reason);
+    const timestamp = new Date().toISOString();
 
     if (isPredefined) {
-      // Direct update without Gemini — token efficient
-      const note = `[Ghosting Note] Reason: ${reason}.`;
-      updatedSummary = updatedSummary + " " + note;
+      // Token-efficient direct update — no Gemini call needed
+      twinData.memory.events.push({
+        type: "ghosting_note",
+        timestamp,
+        reason,
+        insight: `User opted not to engage. Stated reason: "${reason}".`
+      });
 
       await pool.query(
-        "UPDATE digital_twins SET behavioral_summary = $1, updated_at = NOW() WHERE id = $2",
-        [updatedSummary.trim(), twin.id]
+        "UPDATE digital_twins SET twin_data = $1, updated_at = NOW() WHERE id = $2",
+        [JSON.stringify(twinData), twin.id]
       );
     } else {
-      // Custom / "Other" reason — call Gemini for insight
+      // Custom / "Other" reason — call Gemini for a behavioural insight
       const effectiveReason = customReason?.trim() || reason;
+      const currentStateSummary = twinData.current_state_summary ||
+        twinData.emotional_architecture || "No summary available.";
+
+      let insight = `User opted not to engage. Custom reason: "${effectiveReason}".`;
 
       try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -315,28 +348,29 @@ export const ghostingRespond = async (req, res) => {
 A user on a dating/networking platform chose NOT to reply to a match.
 Their stated reason: "${effectiveReason}"
 
-Current behavioral summary of their Digital Twin:
-"${updatedSummary.slice(0, 600)}"
+Current Digital Twin state summary:
+"${currentStateSummary.slice(0, 400)}"
 
 In exactly 1 concise sentence (max 30 words), describe what this ghosting pattern reveals about their communication behaviour or readiness for connection. Do NOT be judgmental.`;
 
         const result = await model.generateContent(prompt);
-        const insight = result.response.text().trim();
-
-        updatedSummary = updatedSummary + " [Ghosting Insight] " + insight;
-
-        await pool.query(
-          "UPDATE digital_twins SET behavioral_summary = $1, updated_at = NOW() WHERE id = $2",
-          [updatedSummary.trim(), twin.id]
-        );
+        insight = result.response.text().trim();
+        console.log(`[Module 8] Gemini ghosting insight generated for user ${userId}`);
       } catch (geminiErr) {
-        console.warn("[Module 8] Gemini insight failed, saving raw reason:", geminiErr.message);
-        updatedSummary = updatedSummary + " [Ghosting Note] Custom reason: " + effectiveReason;
-        await pool.query(
-          "UPDATE digital_twins SET behavioral_summary = $1, updated_at = NOW() WHERE id = $2",
-          [updatedSummary.trim(), twin.id]
-        );
+        console.warn("[Module 8] Gemini insight failed, using fallback reason:", geminiErr.message);
       }
+
+      twinData.memory.events.push({
+        type: "ghosting_insight",
+        timestamp,
+        reason: effectiveReason,
+        insight
+      });
+
+      await pool.query(
+        "UPDATE digital_twins SET twin_data = $1, updated_at = NOW() WHERE id = $2",
+        [JSON.stringify(twinData), twin.id]
+      );
     }
 
     return res.status(200).json({
