@@ -9,10 +9,15 @@
  *  - trackMessageActivity()    → +MESSAGE_REWARD_POINTS / +REPLY_REWARD_POINTS.
  *  - detectActiveGhostingAlert() → Returns pending ghosting alert for a user.
  *  - computeTrustStatus()      → Derives Trust Level, Engagement Status & Ghosting Risk.
+ *  - applyGhostingPenalty()    → Auto-applies penalty + Gemini twin insight on ghosting detection.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
 import { pool } from "../config/db.js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from "dotenv";
+dotenv.config();
+
 
 // ─── Config from environment (all values are configurable via .env) ──────────
 const GHOSTING_TIMEOUT_MS =
@@ -276,5 +281,112 @@ export const computeTrustStatus = async (userId) => {
       ghostedConversations: 0,
       lastActivity: null,
     };
+  }
+};
+
+// ─── Auto-Ghosting Penalty (Module 8 Fix) ────────────────────────────────────
+
+/**
+ * Automatically applies the ghosting penalty to a user and appends a
+ * behavioural insight event into their Digital Twin's memory.
+ *
+ * Idempotent: if a ghosting penalty has already been recorded for the same
+ * handshake session in trust_history, it will not double-penalise.
+ *
+ * Called non-blocking from getTrustStatus when detectActiveGhostingAlert fires.
+ *
+ * @param {number} userId        - The user who ghosted.
+ * @param {number} partnerId     - The partner they ghosted.
+ * @param {number|null} sessionId - The handshake session ID (if available).
+ */
+export const applyGhostingPenalty = async (userId, partnerId, sessionId = null) => {
+  try {
+    // ── Idempotency guard: skip if penalty already applied for this session ──
+    if (sessionId) {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM trust_history
+         WHERE user_id = $1
+           AND handshake_id = $2
+           AND points_change < 0
+           AND reason ILIKE 'Ghosting%'
+         LIMIT 1`,
+        [userId, sessionId]
+      );
+      if (existing.length > 0) {
+        console.log(`[Trust] Auto-ghosting penalty already applied for user ${userId}, session ${sessionId}. Skipping.`);
+        return;
+      }
+    }
+
+    // ── 1. Apply trust penalty ───────────────────────────────────────────────
+    await adjustTrustScore(
+      userId,
+      POINTS.GHOSTING,
+      "Ghosting: Auto-detected inactivity after handshake",
+      sessionId
+    );
+    console.log(`[Module 8] Auto-ghosting penalty applied to user ${userId}`);
+
+    // ── 2. Fetch the user's Digital Twin ─────────────────────────────────────
+    const { rows: twinRows } = await pool.query(
+      "SELECT id, twin_data FROM digital_twins WHERE user_id = $1 LIMIT 1",
+      [userId]
+    );
+    if (twinRows.length === 0) return;
+
+    const twin = twinRows[0];
+    const twinData = twin.twin_data || {};
+
+    // Ensure memory structure exists
+    if (!twinData.memory) twinData.memory = { events: [], handshakes: [], relationship_learning: [] };
+    if (!Array.isArray(twinData.memory.events)) twinData.memory.events = [];
+
+    const timestamp = new Date().toISOString();
+    const currentStateSummary =
+      twinData.current_state_summary ||
+      twinData.emotional_architecture ||
+      "No summary available.";
+
+    // ── 3. Call Gemini for a 1-sentence behavioural insight ──────────────────
+    let insight = "User shows a pattern of disengaging after initial contact without follow-through.";
+
+    try {
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+      const prompt = `You are an AI relationship behavioural analyst.
+
+A user on a dating/networking platform has not responded to a match for over 48 hours after a successful compatibility handshake.
+
+Current Digital Twin state summary:
+"${currentStateSummary.slice(0, 400)}"
+
+In exactly 1 concise sentence (max 30 words), describe what this pattern of non-engagement reveals about their current communication readiness or availability. Do NOT be judgmental.`;
+
+      const result = await model.generateContent(prompt);
+      insight = result.response.text().trim();
+      console.log(`[Module 8] Gemini auto-ghosting insight generated for user ${userId}`);
+    } catch (geminiErr) {
+      console.warn("[Module 8] Gemini auto-insight failed, using fallback:", geminiErr.message);
+    }
+
+    // ── 4. Append ghosting event to twin memory ───────────────────────────────
+    twinData.memory.events.push({
+      type: "ghosting_auto",
+      timestamp,
+      partnerId,
+      sessionId,
+      insight
+    });
+
+    await pool.query(
+      "UPDATE digital_twins SET twin_data = $1, updated_at = NOW() WHERE id = $2",
+      [JSON.stringify(twinData), twin.id]
+    );
+
+    console.log(`[Module 8] Twin memory updated with auto-ghosting event for user ${userId}`);
+  } catch (err) {
+    // Non-blocking — never crash the caller
+    console.warn(`[Module 8] applyGhostingPenalty failed for user ${userId}:`, err.message);
   }
 };
