@@ -207,7 +207,7 @@ const io = new Server(server, {
   transports: ["websocket", "polling"],
 });
 console.log("✅ Socket connected");
-//  Track online users (userId → socketId)
+//  Track online users (userId → connection count) for multi-tab/device presence
 const onlineUsers = new Map();
 
 io.on("connection", (socket) => {
@@ -215,19 +215,28 @@ io.on("connection", (socket) => {
 
   // When frontend registers userId with socket
   socket.on("register_user", (userId) => {
-    onlineUsers.set(String(userId), socket.id);
-    console.log(` User ${userId} registered for notifications`);
+    const key = String(userId);
+    // Store userId on socket for O(1) reverse lookup on disconnect
+    socket.userId = key;
+    // Join a Socket.IO room named after the userId (for routing)
+    socket.join(key);
+    // Track connection count for presence
+    const current = onlineUsers.get(key) || 0;
+    onlineUsers.set(key, current + 1);
+    console.log(` User ${userId} registered (socket: ${socket.id}, total connections: ${onlineUsers.get(key)})`);
   });
-  //console.log('Socket connected', socket.id);
 
   socket.on("disconnect", () => {
-    for (const [userId, socketId] of onlineUsers.entries()) {
-      if (socketId === socket.id) {
-        onlineUsers.delete(userId);
-        break;
-      }
+    const key = socket.userId;
+    if (!key) return;
+    const count = onlineUsers.get(key);
+    if (!count) return;
+    if (count <= 1) {
+      onlineUsers.delete(key);
+    } else {
+      onlineUsers.set(key, count - 1);
     }
-    console.log(" User disconnected:", socket.id);
+    console.log(` User ${key} disconnected (socket: ${socket.id}, remaining: ${onlineUsers.get(key) ?? 0})`);
   });
 });
 
@@ -240,10 +249,9 @@ export const sendNotification = async (userId, title, message) => {
       [userId, title, message]
     );
 
-    // Send via Socket.IO if user is online
-    const socketId = onlineUsers.get(String(userId));
-    if (socketId && result.rows.length > 0) {
-      io.to(socketId).emit("new_notification", result.rows[0]);
+    // Send via Socket.IO to all tabs/devices if user is online (room-based routing)
+    if (result.rows.length > 0) {
+      io.to(String(userId)).emit("new_notification", result.rows[0]);
     }
 
     console.log(` Notification sent to user ${userId}: ${title}`);
