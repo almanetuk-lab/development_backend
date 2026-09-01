@@ -261,7 +261,7 @@ export const extractIntentTags = async (profileOrAboutMe, prompts = null) => {
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
     const prompt = `You are an AI Intent Interpretation Engine for a professional compatibility platform called Intentional Connection.
 
@@ -399,7 +399,7 @@ export const enrichContextualMetadata = async (profileOrAboutMe, prompts = null)
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
     const prompt = `You are an AI Contextual Metadata Enrichment Engine for a compatibility matching platform called Intentional Connection.
 
@@ -549,7 +549,7 @@ export const generateAICompatibility = async (profileA, profileB, localScores = 
   console.log(`🧬 ─────────────────────────────────────────────────────────────`);
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
     // ─── Format full profile details for AI contextualization ───────────────
     const formatProfileDetails = (p) => {
@@ -815,7 +815,7 @@ JSON SCHEMA TO RETURN:
 `;
 
     console.log("🤖 Calling Gemini Matching Engine for psychological profiling...");
-    console.log(`🤖 Gemini model: gemini-2.5-flash`);
+    console.log(`🤖 Gemini model: gemini-3.6-flash`);
     console.log(`🤖 Gemini Prompt length: ${prompt.length} chars`);
 
     const result = await model.generateContent(prompt);

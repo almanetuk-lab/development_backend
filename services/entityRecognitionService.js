@@ -87,7 +87,7 @@ export const extractProfessionalEntities = async (profileData, prompts = null) =
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
     const prompt = `You are a Named Entity Recognition (NER) and Professional Normalization Engine.
 Your task is to analyze fragmented user professional data (job titles, bio text, work rhythms) and normalize it into standardized semantic clusters.

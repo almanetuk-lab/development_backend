@@ -86,8 +86,6 @@ export const generateOrUpdateTwin = async (userId, profileData, aiOutputs) => {
       existing_twin: existingTwin
     }, null, 2);
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     const prompt = `You are the core personality synthesis engine for Intentional Connection.
 Your job is to generate a Persistent Agent Persona (Digital Twin) for a user based on their profile data, AI outputs, and existing twin memory.
 
@@ -127,12 +125,28 @@ INPUT DATA:
 ${contextStr}
 `;
 
-    const result = await model.generateContent(prompt);
-    console.log("[DEBUG] Gemini Request Sent");
+    const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+    let rawText = "";
+    let callSucceeded = false;
 
-    const response = await result.response;
-    const rawText = response.text();
-    console.log("[DEBUG] Gemini Response Received");
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        console.log(`[DEBUG] Gemini Request Sent (${modelName})`);
+        const response = await result.response;
+        rawText = response.text();
+        callSucceeded = true;
+        console.log(`[DEBUG] Gemini Response Received from ${modelName}`);
+        break;
+      } catch (err) {
+        console.warn(`⚠️ [DigitalTwinService] Gemini model ${modelName} failed:`, err.message);
+      }
+    }
+
+    if (!callSucceeded || !rawText) {
+      throw new Error("All Gemini models failed or quota exceeded");
+    }
     console.log("[DEBUG] Raw Response:", rawText);
 
     const jsonString = extractJsonFromText(rawText);
@@ -172,8 +186,44 @@ ${contextStr}
     return synthesizedTwin;
 
   } catch (error) {
-    console.error(`❌ [DigitalTwinService] Error updating twin for user ${userId}:`, error.message);
-    // Silent fail so we don't break background processing
+    console.error(`❌ [DigitalTwinService] Error updating twin via Gemini for user ${userId}:`, error.message);
+    console.log(`⚠️ [DigitalTwinService] Generating baseline persona fallback for user ${userId}...`);
+
+    try {
+      const synthesizedTwin = {
+        professional_ambition: (profileData && (profileData.position || profileData.company_type || profileData.career_decision_style)) || "Focused on career development and personal balance",
+        lifestyle_rhythms: (profileData && (profileData.life_rhythms || profileData.freetime_style || profileData.health_activity_level)) || "Balanced daily routine",
+        emotional_architecture: (profileData && (profileData.self_expression || profileData.preference_of_closeness || profileData.love_language_affection)) || "Authentic and emotionally grounded",
+        relationship_intent: (profileData && (profileData.relationship_goal || profileData.children_preference)) || "Seeking meaningful, intentional partnership",
+        communication_style: (profileData && (profileData.interaction_style || profileData.self_expression)) || "Direct and empathetic communicator",
+        social_energy: (profileData && profileData.freetime_style) || "Selectively social with close circles",
+        stress_cycle: (profileData && (profileData.work_demand_response || profileData.work_rhythm)) || "Manages pressure with measured resilience",
+        career_context: (profileData && (profileData.profession || profileData.position || profileData.professional_identity)) || "Active professional",
+        personal_growth_indicators: (profileData && profileData.relationship_values) || "Continuous personal reflection and growth",
+        current_state_summary: (profileData && (profileData.about_me || profileData.about)) || "Engaging intentionally to find deep, lasting connection.",
+        burnout_curve: DEFAULT_BURNOUT_CURVE,
+        memory: {
+          events: ["Baseline persona synthesized from completed profile."],
+          handshakes: [],
+          relationship_learning: []
+        }
+      };
+
+      await pool.query(`
+        INSERT INTO digital_twins (user_id, twin_data, current_state_summary, updated_at)
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (user_id) 
+        DO UPDATE SET 
+          twin_data = EXCLUDED.twin_data,
+          current_state_summary = EXCLUDED.current_state_summary,
+          updated_at = NOW()
+      `, [userId, JSON.stringify(synthesizedTwin), synthesizedTwin.current_state_summary]);
+
+      console.log(`✅ [DigitalTwinService] Baseline twin fallback successfully saved for user ${userId}.`);
+      return synthesizedTwin;
+    } catch (fallbackError) {
+      console.error(`❌ [DigitalTwinService] Baseline fallback save failed for user ${userId}:`, fallbackError.message);
+    }
   }
 };
 
@@ -204,8 +254,6 @@ export const getOrGenerateBurnoutCurve = async (userId, twinData, profile = {}) 
   console.log(`🔮 [BurnoutCurve] Generating missing burnout curve for user ${userId}...`);
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
     const contextSummary = {
       profession: profile.profession || twinData?.career_context || "Unknown",
       stress_cycle: twinData?.stress_cycle || "Unknown",
@@ -236,9 +284,21 @@ PROFESSIONAL CONTEXT:
 ${JSON.stringify(contextSummary, null, 2)}
 `;
 
-    const result = await model.generateContent(prompt);
-    const rawText = result.response.text();
-    const jsonString = extractJsonFromText(rawText);
+    const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
+    let rawText = "";
+
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        rawText = result.response.text();
+        if (rawText) break;
+      } catch (err) {
+        console.warn(`⚠️ [BurnoutCurve] Gemini model ${modelName} failed:`, err.message);
+      }
+    }
+
+    const jsonString = rawText ? extractJsonFromText(rawText) : null;
 
     if (!jsonString) {
       console.warn(`⚠️ [BurnoutCurve] Could not parse Gemini response for user ${userId}. Using default.`);

@@ -91,7 +91,9 @@ const resolveDigitalTwin = async (userId, context = "Your") => {
   const profile = await fetchProfileData(userId);
   if (!profile) {
     throw new Error(
-      `${context} Digital Twin could not be generated because no profile was found. Please complete your profile first.`
+      context === "Your"
+        ? "Your profile is not complete yet. Please finish setting up your profile to generate compatibility reports."
+        : "This member has not completed their profile yet, so compatibility analysis cannot be generated."
     );
   }
 
@@ -113,7 +115,9 @@ const resolveDigitalTwin = async (userId, context = "Your") => {
   );
   if (fresh.rows.length === 0) {
     throw new Error(
-      `${context} Digital Twin generation failed unexpectedly. Please try again.`
+      context === "Your"
+        ? "Unable to generate your AI compatibility profile. Please try again shortly."
+        : "Unable to analyze this member's profile at this time. Please try again shortly."
     );
   }
 
@@ -341,7 +345,7 @@ export const ghostingRespond = async (req, res) => {
 
       try {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
         const prompt = `You are an AI relationship behavioural analyst.
 

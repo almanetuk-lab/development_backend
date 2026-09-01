@@ -372,7 +372,6 @@ export const generateHandshake = async (userAId, userBId, twinA, twinB) => {
     console.log(`[DEBUG] Stress Synchronization Analysis Started`);
 
     // ── Step 4: Single Gemini call — compatibility + stress sync + privacy + friction + conflict ──
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `You are the core personality handshake validation engine for Intentional Connection.
 Your task is to analyze two abstract Digital Twins (User A and User B) and output:
@@ -498,15 +497,22 @@ ${JSON.stringify(privacySafeTwinA, null, 2)}
 User B Digital Twin (Privacy-Safe — no PII):
 ${JSON.stringify(privacySafeTwinB, null, 2)}
 `;
+    const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
     let rawText = "";
     let callSucceeded = false;
-    try {
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      rawText = response.text();
-      callSucceeded = true;
-    } catch (apiErr) {
-      console.warn("⚠️ [Handshake Service] Gemini API call failed. Using default compatibility/stress/friction/conflict fallback.", apiErr.message);
+
+    for (const modelName of GEMINI_MODELS) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        rawText = response.text();
+        callSucceeded = true;
+        console.log(`✅ [Handshake Service] Gemini handshake successfully generated using ${modelName}`);
+        break;
+      } catch (apiErr) {
+        console.warn(`⚠️ [Handshake Service] Gemini model ${modelName} failed:`, apiErr.message);
+      }
     }
 
     // ── Step 5: Parse and validate Gemini response ──────────────────────────

@@ -469,7 +469,7 @@ export const analyzeSentimentAndTone = async (profileOrText, prompts = null) => 
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
 
     // ── Gemini Prompt ────────────────────────────────────────────────────────
     const prompt = `You are an AI Sentiment & Emotional Tone Analysis Engine for a professional relationship compatibility platform called Intentional Connection.
