@@ -16,6 +16,254 @@ import { generateSpiderGraphData } from "../services/spiderGraphService.js";
 
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 
+export const NORMALIZE_ENUMS = {
+  gender: {
+    Male: "Male",
+    Female: "Female",
+    "Non-Binary": "Non-Binary",
+    Other: "Other",
+  },
+  marital_status: {
+    Single: "Single",
+    Married: "Married",
+    Divorced: "Divorced",
+    Widowed: "Widowed",
+    Other: "Other",
+    Separated: "Separated",
+  },
+  interested_in: {
+    Man: "Man",
+    Woman: "Woman",
+    "Non-Binary": "Non-Binary",
+    Everyone: "Everyone",
+  },
+  relationship_goal: {
+    "Long-term": "Long-term",
+    "Life Partner": "Life Partner",
+    "Dating with intent": "Dating with intent",
+    Friend: "Friend",
+    "Figuring it out": "Figuring it out",
+  },
+  children_preference: {
+    Want: "Want",
+    WANT: "Want",
+    "Don't want": "Don’t want",
+    "Don’t want": "Don’t want",
+    DONT_WANT: "Don’t want",
+    "Have and want more": "Have and want more",
+    HAVE_AND_WANT_MORE: "Have and want more",
+    "Have and don't want more": "Have and don’t want more",
+    "Have and don’t want more": "Have and don’t want more",
+    HAVE_AND_DONT_WANT_MORE: "Have and don’t want more",
+    "Open / Not sure yet": "Open / Not Sure yet",
+    "Open / Not Sure yet": "Open / Not Sure yet",
+    OPEN_OR_NOT_SURE_YET: "Open / Not Sure yet",
+  },
+  pets_preference: {
+    Want: "Want",
+    WANT: "Want",
+    "Don't want": "Don’t want",
+    "Don’t want": "Don’t want",
+    DONT_WANT: "Don’t want",
+    "Have and want more": "Have and want more",
+    HAVE_AND_WANT_MORE: "Have and want more",
+    "Have and don't want more": "Have and don’t want more",
+    "Have and don’t want more": "Have and don’t want more",
+    HAVE_AND_DONT_WANT_MORE: "Have and don’t want more",
+    "Open / Not sure yet": "Open / Not sure yet",
+    "Open / Not Sure yet": "Open / Not sure yet",
+    OPEN_OR_NOT_SURE_YET: "Open / Not sure yet",
+  },
+  education: {
+    "No Formal Education": "No Formal Education",
+    "Currently Studying": "Currently Studying",
+    "High School": "High School",
+    HIGH_SCHOOL: "High School",
+    "Vocational / Trade School": "Vocational / Trade School",
+    "Associate Degree": "Associate Degree",
+    "Bachelors Degree": "Bachelors Degree",
+    BACHELORS: "Bachelors Degree",
+    Bachelors: "Bachelors Degree",
+    "Masters Degree": "Masters Degree",
+    MASTERS: "Masters Degree",
+    Master: "Masters Degree",
+    Doctorate: "Doctorate",
+    PHD: "Doctorate",
+  },
+  smoking: {
+    No: "No",
+    NO: "No",
+    Yes: "Yes",
+    YES: "Yes",
+    Socially: "Socially",
+    SOCIAL: "Socially",
+  },
+  drinking: {
+    No: "No",
+    NO: "No",
+    Yes: "Yes",
+    YES: "Yes",
+    Socially: "Socially",
+    SOCIAL: "Socially",
+  },
+  work_rhythm: {
+    Regular: "Structured routine",
+    "Structured routine": "Structured routine",
+    Flexible: "Balanced with busy phases",
+    "Balanced with busy phases": "Balanced with busy phases",
+    Intense: "High intensity",
+    "High intensity": "High intensity",
+    Unpredictable: "Unpredictable",
+    Seasonal: "Project-based",
+    "Project-based": "Project-based",
+    "Travel-heavy": "Travel-heavy",
+  },
+  career_decision_style: {
+    Analytical: "Security-focused",
+    "Security-focused": "Security-focused",
+    Collaborative: "Balanced",
+    Balanced: "Balanced",
+    Intuitive: "Opportunity-driven",
+    "Opportunity-driven": "Opportunity-driven",
+    Independent: "Risk-positive",
+    "Risk-positive": "Risk-positive",
+  },
+  work_demand_response: {
+    Proactive: "Adjusting plans quickly",
+    "Adjusting plans quickly": "Adjusting plans quickly",
+    Reactive: "Keeping structure",
+    "Keeping structure": "Keeping structure",
+    Balanced: "Taking space to rebalance",
+    "Taking space to rebalance": "Taking space to rebalance",
+    Selective: "Communicating clearly and finding a middle ground",
+    "Communicating clearly and finding a middle ground": "Communicating clearly and finding a middle ground",
+  },
+  preference_of_closeness: {
+    High: "More time together",
+    "More time together": "More time together",
+    Medium: "A mix of space and closeness",
+    "A mix of space and closeness": "A mix of space and closeness",
+    Low: "Regular personal time",
+    "Regular personal time": "Regular personal time",
+    Variable: "Not yet sure",
+    "Not yet sure": "Not yet sure",
+    "Open / Not yet sure": "Not yet sure",
+    "Open / Not Sure yet": "Not yet sure",
+  },
+  professional_identity: {
+    "Corporate Professional": "Corporate Professional",
+    PROFESSIONAL: "Corporate Professional",
+    Entrepreneur: "Entrepreneur",
+    ENTREPRENEUR: "Entrepreneur",
+    "Startup Founder": "Startup Founder",
+    Freelancer: "Freelancer",
+    FREELANCER: "Freelancer",
+    "Consultant Trader": "Consultant Trader",
+    Consultant: "Consultant Trader",
+    Trader: "Consultant Trader",
+    Investor: "Investor",
+    "Family Business Owner": "Family Business Owner",
+    "Small Business Owner": "Small Business Owner",
+    "Creative Professional": "Creative Professional",
+    "Healthcare Professional": "Healthcare Professional",
+    "Public Service": "Public Service",
+    Government: "Government",
+    Student: "Student",
+    STUDENT: "Student",
+    Other: "Other",
+  },
+  freetime_style: {
+    "Mostly social": "Mostly social",
+    "With Partner": "With Partner",
+    "Balanced mix": "Balanced mix",
+    "Low-key and restful": "Low-key and restful",
+  },
+  health_activity_level: {
+    Active: "Active",
+    "Semi-active": "Semi-active",
+    Light: "Light",
+    Minimal: "Minimal",
+  },
+  self_expression: {
+    "Clear and direct": "Clear and direct",
+    "Reflective and calm": "Reflective and calm",
+    "Expressive once I trust": "Expressive once I trust",
+    "Reserved until I feel safe": "Reserved until I feel safe",
+  },
+  interaction_style: {
+    "Light and engaging": "Light and engaging",
+    "Deep and thought-provoking": "Deep and thought-provoking",
+    "Reserved unless invited": "Reserved unless invited",
+    Other: "Other",
+  },
+  work_environment: {
+    Remote: "Remote",
+    Hybrid: "Hybrid",
+    "Office/Location based": "Office/Location based",
+    "On-the-go": "On-the-go",
+    Other: "Other",
+  },
+  relationship_values: {
+    Growth: "Growth",
+    Stability: "Stability",
+    "Emotional openness": "Emotional openness",
+    "Shared rhythm": "Shared rhythm",
+    "Practical harmony": "Practical harmony",
+  },
+  values_in_others: {
+    "Self-awareness": "Self-awareness",
+    "Emotional intelligence": "Emotional intelligence",
+    Ambition: "Ambition",
+    Kindness: "Kindness",
+    Humour: "Humour",
+  },
+  relationship_pace: {
+    Naturally: "Naturally",
+    Quickly: "Quickly",
+    Slowly: "Slowly",
+    "With clear definition": "With clear definition",
+  },
+  love_language_affection: {
+    "Physical Touch": "Physical Touch",
+    "Words of Affirmation": "Words of Affirmation",
+    "Quality Time": "Quality Time",
+    "Acts of Service": "Acts of Service",
+    "Thoughtful Gifts": "Thoughtful Gifts",
+  },
+  approach_to_physical_closeness: {
+    "Gradual build-up": "Gradual build-up",
+    "Connect early if aligned": "Connect early if aligned",
+    "Emotional-first": "Emotional-first",
+    "Emotional + physical balanced": "Emotional + physical balanced",
+    "Prefer more time": "Prefer more time",
+  },
+  religious_belief: {
+    Hindu: "Hindu",
+    Muslim: "Muslim",
+    Christian: "Christian",
+    Sikh: "Sikh",
+    Buddhist: "Buddhist",
+    Jain: "Jain",
+    Jewish: "Jewish",
+    Spiritual: "Spiritual",
+    Atheist: "Agnostic",
+    Agnostic: "Agnostic",
+    Other: "Other",
+    "Prefer not to say": "Prefer not to say",
+  },
+};
+
+export const cleanEnum = (field, val) => {
+  if (val === undefined || val === null) return null;
+  if (typeof val !== "string") return val;
+  const trimmed = val.trim();
+  if (trimmed === "") return null;
+  if (NORMALIZE_ENUMS[field] && NORMALIZE_ENUMS[field][trimmed]) {
+    return NORMALIZE_ENUMS[field][trimmed];
+  }
+  return trimmed;
+};
+
 // 🟢 Update Profile 
 export const updateProfile = async (req, res) => {
   try {
@@ -105,6 +353,34 @@ export const updateProfile = async (req, res) => {
     const clean_email = typeof email === "string" ? email.trim() : "";
     const clean_username = typeof username === "string" ? username.trim().toLowerCase() : "";
 
+    // Normalize all dropdown/enum fields to DB format
+    const normalized_gender = cleanEnum("gender", gender);
+    const normalized_marital_status = cleanEnum("marital_status", marital_status);
+    const normalized_professional_identity = cleanEnum("professional_identity", professional_identity);
+    const normalized_company_type = cleanEnum("company_type", company_type);
+    const normalized_education = cleanEnum("education", education);
+    const normalized_freetime_style = cleanEnum("freetime_style", freetime_style);
+    const normalized_health_activity_level = cleanEnum("health_activity_level", health_activity_level);
+    const normalized_smoking = cleanEnum("smoking", smoking);
+    const normalized_drinking = cleanEnum("drinking", drinking);
+    const normalized_pets_preference = cleanEnum("pets_preference", pets_preference);
+    const normalized_religious_belief = cleanEnum("religious_belief", religious_belief);
+    const normalized_interested_in = cleanEnum("interested_in", interested_in);
+    const normalized_relationship_goal = cleanEnum("relationship_goal", relationship_goal);
+    const normalized_children_preference = cleanEnum("children_preference", children_preference);
+    const normalized_self_expression = cleanEnum("self_expression", self_expression);
+    const normalized_interaction_style = cleanEnum("interaction_style", interaction_style);
+    const normalized_work_environment = cleanEnum("work_environment", work_environment);
+    const normalized_work_rhythm = cleanEnum("work_rhythm", work_rhythm);
+    const normalized_career_decision_style = cleanEnum("career_decision_style", career_decision_style);
+    const normalized_work_demand_response = cleanEnum("work_demand_response", work_demand_response);
+    const normalized_preference_of_closeness = cleanEnum("preference_of_closeness", preference_of_closeness);
+    const normalized_love_language_affection = cleanEnum("love_language_affection", love_language_affection);
+    const normalized_approach_to_physical_closeness = cleanEnum("approach_to_physical_closeness", approach_to_physical_closeness);
+    const normalized_relationship_values = cleanEnum("relationship_values", relationship_values);
+    const normalized_values_in_others = cleanEnum("values_in_others", values_in_others);
+    const normalized_relationship_pace = cleanEnum("relationship_pace", relationship_pace);
+
     // 1. Core Profile Details Validation
     if (clean_first_name.length < 2 || clean_first_name.length > 50) {
       return res.status(400).json({ error: "First name must be between 2 and 50 characters.", message: "First name must be between 2 and 50 characters." });
@@ -124,7 +400,7 @@ export const updateProfile = async (req, res) => {
     if (clean_email.length > 100) {
       return res.status(400).json({ error: "Email address cannot exceed 100 characters.", message: "Email address cannot exceed 100 characters." });
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+.[^\s@]+$/;
     if (!emailRegex.test(clean_email)) {
       return res.status(400).json({ error: "Please enter a valid email address.", message: "Please enter a valid email address." });
     }
@@ -220,28 +496,28 @@ export const updateProfile = async (req, res) => {
 
     // 3. Dropdowns (Enums) Validation
     const enumValidations = [
-      { name: "gender", val: gender, list: ["Male", "Female", "Non-Binary", "Other", "Male", "Female", "Other", "Non-Binary"] },
-      { name: "marital_status", val: marital_status, list: ["Single", "Married", "Divorced", "Widowed", "Other", "Separated"] },
-      { name: "professional_identity", val: professional_identity, list: ["STUDENT", "PROFESSIONAL", "ENTREPRENEUR", "FREELANCER", "Student", "Corporate Professional", "Entrepreneur", "Freelancer", "Consultant", "Trader", "Investor", "Family Business Owner", "Small Business Owner", "Creative Professional", "Healthcare Professional", "Public Service", "Government", "Other"] },
-      { name: "company_type", val: company_type, list: ["MNC", "Startup", "SME", "Government", "NGO", "Other"] },
-      { name: "education", val: education, list: ["No Formal Education", "Currently Studying", "High School", "Vocational / Trade School", "Associate Degree", "Bachelors Degree", "Masters Degree", "Doctorate", "HIGH_SCHOOL", "BACHELORS", "MASTERS", "PHD", "Other", "Bachelors", "Master", "Others"] },
-      { name: "freetime_style", val: freetime_style, list: ["Mostly social", "With Partner", "Balanced mix", "Low-key and restful"] },
-      { name: "health_activity_level", val: health_activity_level, list: ["Active", "Semi-active", "Light", "Minimal"] },
-      { name: "smoking", val: smoking, list: ["NO", "YES", "SOCIAL", "No", "Yes", "Socially"] },
-      { name: "drinking", val: drinking, list: ["NO", "YES", "SOCIAL", "No", "Yes", "Socially"] },
-      { name: "pets_preference", val: pets_preference, list: ["WANT", "DONT_WANT", "HAVE_AND_WANT_MORE", "HAVE_AND_DONT_WANT_MORE", "OPEN_OR_NOT_SURE_YET", "Want", "Don't want", "Don’t want", "Have and want more", "Have and don't want more", "Have and don’t want more", "Open / Not sure yet", "Open / Not Sure yet"] },
-      { name: "religious_belief", val: religious_belief, list: ["Hindu", "Muslim", "Christian", "Sikh", "Buddhist", "Jain", "Jewish", "Spiritual", "Atheist", "Agnostic", "Other", "Prefer not to say"] },
-      { name: "interested_in", val: interested_in, list: ["Man", "Woman", "Non-Binary", "Everyone"] },
-      { name: "relationship_goal", val: relationship_goal, list: ["Long-term", "Life Partner", "Dating with intent", "Friend", "Figuring it out"] },
-      { name: "children_preference", val: children_preference, list: ["WANT", "DONT_WANT", "HAVE_AND_WANT_MORE", "HAVE_AND_DONT_WANT_MORE", "OPEN_OR_NOT_SURE_YET", "Want", "Don't want", "Don’t want", "Have and want more", "Have and don't want more", "Have and don’t want more", "Open / Not sure yet", "Open / Not Sure yet"] },
-      { name: "self_expression", val: self_expression, list: ["Clear and direct", "Reflective and calm", "Expressive once I trust", "Reserved until I feel safe"] },
-      { name: "interaction_style", val: interaction_style, list: ["Light and engaging", "Deep and thought-provoking", "Reserved unless invited", "Other"] },
-      { name: "work_environment", val: work_environment, list: ["Remote", "Hybrid", "Office/Location based", "On-the-go", "Other"] },
-      { name: "work_rhythm", val: work_rhythm, list: ["Regular", "Flexible", "Intense", "Seasonal", "Structured routine", "Balanced with busy phases", "High intensity", "Project-based"] },
-      { name: "career_decision_style", val: career_decision_style, list: ["Analytical", "Intuitive", "Collaborative", "Independent", "Security-focused", "Balanced", "Opportunity-driven", "Risk-positive"] },
-      { name: "work_demand_response", val: work_demand_response, list: ["Proactive", "Reactive", "Balanced", "Selective", "Adjusting plans quickly", "Keeping structure", "Taking space to rebalance", "Communicating clearly and finding a middle ground"] },
-      { name: "preference_of_closeness", val: preference_of_closeness, list: ["High", "Medium", "Low", "Variable", "More time together", "A mix of space and closeness", "Regular personal time", "Not yet sure", "Open / Not yet sure"] },
-      { name: "love_language_affection", val: love_language_affection, list: ["Physical Touch", "Words of Affirmation", "Quality Time", "Acts of Service", "Thoughtful Gifts"] },
+      { name: "gender", val: normalized_gender, list: ["Male", "Female", "Non-Binary", "Other"] },
+      { name: "marital_status", val: normalized_marital_status, list: ["Single", "Married", "Divorced", "Widowed", "Other", "Separated"] },
+      { name: "professional_identity", val: normalized_professional_identity, list: ["Corporate Professional", "Entrepreneur", "Startup Founder", "Freelancer", "Consultant Trader", "Investor", "Family Business Owner", "Small Business Owner", "Creative Professional", "Healthcare Professional", "Public Service", "Government", "Student", "Other"] },
+      { name: "company_type", val: normalized_company_type, list: ["MNC", "Startup", "SME", "Government", "NGO", "Other"] },
+      { name: "education", val: normalized_education, list: ["No Formal Education", "Currently Studying", "High School", "Vocational / Trade School", "Associate Degree", "Bachelors Degree", "Masters Degree", "Doctorate"] },
+      { name: "freetime_style", val: normalized_freetime_style, list: ["Mostly social", "With Partner", "Balanced mix", "Low-key and restful"] },
+      { name: "health_activity_level", val: normalized_health_activity_level, list: ["Active", "Semi-active", "Light", "Minimal"] },
+      { name: "smoking", val: normalized_smoking, list: ["No", "Yes", "Socially"] },
+      { name: "drinking", val: normalized_drinking, list: ["No", "Yes", "Socially"] },
+      { name: "pets_preference", val: normalized_pets_preference, list: ["Want", "Don’t want", "Don't want", "Have and want more", "Have and don’t want more", "Have and don't want more", "Open / Not sure yet", "Open / Not Sure yet"] },
+      { name: "religious_belief", val: normalized_religious_belief, list: ["Hindu", "Muslim", "Christian", "Sikh", "Buddhist", "Jain", "Jewish", "Spiritual", "Atheist", "Agnostic", "Other", "Prefer not to say"] },
+      { name: "interested_in", val: normalized_interested_in, list: ["Man", "Woman", "Non-Binary", "Everyone"] },
+      { name: "relationship_goal", val: normalized_relationship_goal, list: ["Long-term", "Life Partner", "Dating with intent", "Friend", "Figuring it out"] },
+      { name: "children_preference", val: normalized_children_preference, list: ["Want", "Don’t want", "Don't want", "Have and want more", "Have and don’t want more", "Have and don't want more", "Open / Not Sure yet", "Open / Not sure yet"] },
+      { name: "self_expression", val: normalized_self_expression, list: ["Clear and direct", "Reflective and calm", "Expressive once I trust", "Reserved until I feel safe"] },
+      { name: "interaction_style", val: normalized_interaction_style, list: ["Light and engaging", "Deep and thought-provoking", "Reserved unless invited", "Other"] },
+      { name: "work_environment", val: normalized_work_environment, list: ["Remote", "Hybrid", "Office/Location based", "On-the-go", "Other"] },
+      { name: "work_rhythm", val: normalized_work_rhythm, list: ["Structured routine", "Balanced with busy phases", "High intensity", "Unpredictable", "Project-based", "Travel-heavy"] },
+      { name: "career_decision_style", val: normalized_career_decision_style, list: ["Security-focused", "Balanced", "Opportunity-driven", "Risk-positive"] },
+      { name: "work_demand_response", val: normalized_work_demand_response, list: ["Adjusting plans quickly", "Keeping structure", "Taking space to rebalance", "Communicating clearly and finding a middle ground"] },
+      { name: "preference_of_closeness", val: normalized_preference_of_closeness, list: ["More time together", "A mix of space and closeness", "Regular personal time", "Not yet sure"] },
+      { name: "love_language_affection", val: normalized_love_language_affection, list: ["Physical Touch", "Words of Affirmation", "Quality Time", "Acts of Service", "Thoughtful Gifts"] },
     ];
     for (const item of enumValidations) {
       if (item.val && item.val !== "") {
@@ -319,55 +595,55 @@ export const updateProfile = async (req, res) => {
         try {
           const profileData = {
             // Personal Identity
-            first_name,
-            last_name,
+            first_name: clean_first_name,
+            last_name: clean_last_name,
             age,
-            gender,
+            gender: normalized_gender,
             zodiac_sign,
-            marital_status,
+            marital_status: normalized_marital_status,
             languages_spoken,
             city,
             state,
             country,
             // Education
-            education,
+            education: normalized_education,
             education_institution_name,
             // Professional
             profession,
             company,
-            company_type,
+            company_type: normalized_company_type,
             experience,
             position,
-            professional_identity,
+            professional_identity: normalized_professional_identity,
             skills,
             // Work rhythm
-            work_environment,
-            work_rhythm,
-            career_decision_style,
-            work_demand_response,
-            interaction_style,
+            work_environment: normalized_work_environment,
+            work_rhythm: normalized_work_rhythm,
+            career_decision_style: normalized_career_decision_style,
+            work_demand_response: normalized_work_demand_response,
+            interaction_style: normalized_interaction_style,
             // Interests & hobbies
             interests,
             hobbies,
             ways_i_spend_time,
             // Relationship & partner preferences
-            relationship_goal,
-            relationship_values,
-            relationship_pace,
-            love_language_affection,
-            interested_in,
-            values_in_others,
-            self_expression,
-            preference_of_closeness,
-            approach_to_physical_closeness,
-            children_preference,
+            relationship_goal: normalized_relationship_goal,
+            relationship_values: normalized_relationship_values,
+            relationship_pace: normalized_relationship_pace,
+            love_language_affection: normalized_love_language_affection,
+            interested_in: normalized_interested_in,
+            values_in_others: normalized_values_in_others,
+            self_expression: normalized_self_expression,
+            preference_of_closeness: normalized_preference_of_closeness,
+            approach_to_physical_closeness: normalized_approach_to_physical_closeness,
+            children_preference: normalized_children_preference,
             // Lifestyle & personality
-            freetime_style,
-            health_activity_level,
-            pets_preference,
-            religious_belief,
-            smoking,
-            drinking,
+            freetime_style: normalized_freetime_style,
+            health_activity_level: normalized_health_activity_level,
+            pets_preference: normalized_pets_preference,
+            religious_belief: normalized_religious_belief,
+            smoking: normalized_smoking,
+            drinking: normalized_drinking,
             // Life rhythms JSONB
             life_rhythms,
             // Bio
@@ -564,57 +840,57 @@ export const updateProfile = async (req, res) => {
     `;
 
     const profileValues = [
-      first_name,
-      last_name,
-      phone,
-      gender,
-      marital_status,
-      address,
-      profession,
+      clean_first_name,
+      clean_last_name,
+      phone || null,
+      normalized_gender || null,
+      normalized_marital_status || null,
+      address || null,
+      profession || null,
       JSON.stringify(skills || {}),
       JSON.stringify(interests || {}),
-      about,
-      city,
-      state,
-      country,
-      pincode,
-      headline,
-      dob,
-      age,
-      education,
-      company,
-      company_type,
-      experience,
-      position,
+      about || null,
+      city || null,
+      state || null,
+      country || null,
+      pincode || null,
+      headline || null,
+      dob || null,
+      age || null,
+      normalized_education || null,
+      company || null,
+      normalized_company_type || null,
+      experience !== undefined && experience !== null && experience !== "" ? Number(experience) : null,
+      position || null,
       JSON.stringify(hobbies || {}),
-      professional_identity,
-      interested_in,
-      relationship_goal,
-      children_preference,
-      education_institution_name,
-      languages_spoken, // text[] — pass as array
-      zodiac_sign,
-      self_expression,
-      freetime_style,
-      health_activity_level,
-      pets_preference,
-      religious_belief,
-      smoking,
-      drinking,
-      work_environment,
-      interaction_style,
-      work_rhythm,
-      career_decision_style,
-      work_demand_response,
-      love_language_affection, // enum — pass as enum string
-      preference_of_closeness,
-      approach_to_physical_closeness,
-      relationship_values,
-      values_in_others,
-      relationship_pace,
+      normalized_professional_identity || null,
+      normalized_interested_in || null,
+      normalized_relationship_goal || null,
+      normalized_children_preference || null,
+      education_institution_name || null,
+      languages_spoken || null, // text[] — pass as array
+      zodiac_sign || null,
+      normalized_self_expression || null,
+      normalized_freetime_style || null,
+      normalized_health_activity_level || null,
+      normalized_pets_preference || null,
+      normalized_religious_belief || null,
+      normalized_smoking || null,
+      normalized_drinking || null,
+      normalized_work_environment || null,
+      normalized_interaction_style || null,
+      normalized_work_rhythm || null,
+      normalized_career_decision_style || null,
+      normalized_work_demand_response || null,
+      normalized_love_language_affection || null, // enum — pass as enum string
+      normalized_preference_of_closeness || null,
+      normalized_approach_to_physical_closeness || null,
+      normalized_relationship_values || null,
+      normalized_values_in_others || null,
+      normalized_relationship_pace || null,
       height,
       JSON.stringify(life_rhythms || {}),
-      about_me,
+      about_me || null,
       JSON.stringify(ways_i_spend_time || {}),
       imageUrl,
       intent_tags ? JSON.stringify(intent_tags) : null, // null → COALESCE keeps existing DB value
