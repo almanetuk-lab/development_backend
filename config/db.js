@@ -38,6 +38,20 @@ export const testConnection = async () => {
     `);
     console.log("🔔 notifications table columns verified.");
 
+    // Align enum types for children and pets preferences to support both straight and curly apostrophes
+    try {
+      await pool.query(`
+        ALTER TYPE children_preference_enum ADD VALUE IF NOT EXISTS 'Don''t want';
+        ALTER TYPE children_preference_enum ADD VALUE IF NOT EXISTS 'Have and don''t want more';
+        ALTER TYPE children_preference_enum ADD VALUE IF NOT EXISTS 'Open / Not sure yet';
+        ALTER TYPE pets_preference_enum ADD VALUE IF NOT EXISTS 'Don''t want';
+        ALTER TYPE pets_preference_enum ADD VALUE IF NOT EXISTS 'Have and don''t want more';
+        ALTER TYPE pets_preference_enum ADD VALUE IF NOT EXISTS 'Open / Not Sure yet';
+      `);
+    } catch (enumErr) {
+      console.warn("⚠️ Enum alignment notice:", enumErr.message);
+    }
+
     // Dynamic table initialization for profile_compatibilities with indexes
     console.log("🧬 Verifying profile_compatibilities table...");
     await pool.query(`
