@@ -224,6 +224,14 @@ io.on("connection", (socket) => {
     const current = onlineUsers.get(key) || 0;
     onlineUsers.set(key, current + 1);
     console.log(` User ${userId} registered (socket: ${socket.id}, total connections: ${onlineUsers.get(key)})`);
+
+    // If this is the user's first connection, broadcast they came online
+    if (current === 0) {
+      io.emit("user_status_change", { userId: key, isOnline: true });
+    }
+
+    // Send the current online users snapshot to THIS socket only
+    socket.emit("online_users_list", Array.from(onlineUsers.keys()));
   });
 
   socket.on("disconnect", () => {
@@ -233,6 +241,8 @@ io.on("connection", (socket) => {
     if (!count) return;
     if (count <= 1) {
       onlineUsers.delete(key);
+      // User's last connection gone — broadcast they went offline
+      io.emit("user_status_change", { userId: key, isOnline: false });
     } else {
       onlineUsers.set(key, count - 1);
     }
