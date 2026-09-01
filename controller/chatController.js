@@ -464,16 +464,24 @@ export const getMessagesForUser = async (req, res) => {
       [myUserId, userId]
     );
 
-    await pool.query(
+    const updateResult = await pool.query(
       `
       UPDATE messages
       SET is_read = TRUE
       WHERE receiver_id = $1
         AND sender_id = $2
         AND is_read = FALSE
+      RETURNING id
       `,
       [myUserId, userId]
     );
+
+    if (updateResult.rows.length > 0) {
+      io.to(String(userId)).emit("messages_read", {
+        readBy: Number(myUserId),
+        conversationWith: Number(myUserId),
+      });
+    }
 
     await pool.query(
       `
