@@ -262,7 +262,7 @@ Write a natural, concise reply (1–3 short sentences, ~500 chars max). Match th
 
     console.log(`🤖 [AIAgentService] Generating reply for user ${ownerUserId}...`);
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
     const result = await model.generateContent(prompt);
     const replyText = result.response.text()?.trim();
 
