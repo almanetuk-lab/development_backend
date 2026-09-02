@@ -241,8 +241,13 @@ io.on("connection", (socket) => {
     if (!count) return;
     if (count <= 1) {
       onlineUsers.delete(key);
-      // User's last connection gone — broadcast they went offline
-      io.emit("user_status_change", { userId: key, isOnline: false });
+      const lastSeen = new Date().toISOString();
+      // Persist last_seen timestamp in database asynchronously
+      pool.query("UPDATE users SET last_seen = NOW() WHERE id = $1", [key]).catch((err) => {
+        console.error(`❌ Failed to update last_seen for user ${key}:`, err.message);
+      });
+      // User's last connection gone — broadcast they went offline with lastSeen
+      io.emit("user_status_change", { userId: key, isOnline: false, lastSeen });
     } else {
       onlineUsers.set(key, count - 1);
     }

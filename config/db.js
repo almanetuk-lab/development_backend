@@ -175,7 +175,8 @@ export const searchUsers = async (searchTerm) => {
     SELECT
       id,
       INITCAP(SPLIT_PART(email, '@', 1)) AS name,  -- Extract name part from email
-      email
+      email,
+      last_seen
     FROM users
     WHERE email ILIKE $1
     ORDER BY email
@@ -282,6 +283,7 @@ export const getRecentChats = async (myUserId) => {
       u.id AS user_id,
       INITCAP(SPLIT_PART(u.email, '@', 1)) AS name,
       u.email,
+      u.last_seen AS last_seen,
       p.image_url AS profile_picture_url,
 
       lm.content AS last_message,
