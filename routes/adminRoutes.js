@@ -4,6 +4,7 @@ import { adminLogin, approveUser, deactivateUser, getAllUserDetails, getAllUsers
 import { verifyAdminToken } from "../middleware/verifyAdminToken.js";
 import { validateAccessToken } from "../middleware/verfiytoken.js";
 import { getAuditLogs } from "../controller/adminAuditController.js";
+import { clearAdminCookie } from "../utils/cookieHelper.js";
 
 const router = express.Router();
 
@@ -20,4 +21,11 @@ router.get("/api/admin/newsletter-subscriptions", verifyAdminToken, getNewslette
 router.delete("/api/admin/contact-messages/:id", verifyAdminToken, deleteContactMessage); // Delete Contact Message
 router.delete("/api/admin/newsletter-subscriptions/:id", verifyAdminToken, deleteNewsletterSubscription); // Delete Newsletter Subscription
 
+// Admin logout — clears adminAccessToken cookie
+router.post("/api/admin/logout", (req, res) => {
+  clearAdminCookie(res);
+  res.json({ message: "Admin logged out successfully" });
+});
+
 export default router;
+

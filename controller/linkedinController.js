@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import pkg from 'pg';
 const { Pool } = pkg;
 import dotenv from 'dotenv';
+import { setAuthCookies } from '../utils/cookieHelper.js';
 
 dotenv.config();
 
@@ -131,35 +132,33 @@ class LinkedInAuthController {
                 }
             }
 
-            // ✅ Step D: Website JWT Token
+            // ✅ Step D: Website JWT Token — slim payload + fixed expiry
             const payload = {
                 id: user.id,
-                user_id: user.id,
                 email: user.email,
-                name: displayName,
-                auth_provider: 'linkedin',
                 status: user.status
             };
 
             const websiteToken = jwt.sign(
                 payload,
                 process.env.ACCESS_SECRET_KEY,
-                { expiresIn: '7d' }
+                { expiresIn: '30m' }
             );
 
             const refreshToken = jwt.sign(
                 payload,
                 process.env.REFRESH_SECRET_KEY,
-                { expiresIn: '30d' }
+                { expiresIn: '7d' }
             );
 
             console.log('✨ JWT generated successfully for LinkedIn user');
 
+            // Set httpOnly cookies instead of returning tokens in response body
+            setAuthCookies(res, websiteToken, refreshToken);
+
             res.json({
                 success: true,
-                token: websiteToken,
-                refreshToken: refreshToken,
-                user: { id: user.id, name: user.name, email: user.email }
+                user: { id: user.id, name: displayName, email: user.email }
             });
 
         }
