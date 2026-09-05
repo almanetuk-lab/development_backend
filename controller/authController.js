@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcrypt";
 import { sendNotification } from "../server.js";
 import { sendEmail } from "../services/sendEmail.js";
+import { setAuthCookies } from "../utils/cookieHelper.js";
 
 //import { sendEmail } from "../emailService.js";
 
@@ -352,16 +353,10 @@ export async function loginUser(req, res) {
 
     user_profile.email = user.email;
 
+    // Slim JWT payload — only immutable identifiers
     const payload = {
       id: user.id,
-      user_id: user_profile.user_id,
-      email: user_profile.email,
-      phone: user_profile.phone,
-      first_name: user_profile.first_name, // full_name -> first_name
-      last_name: user_profile.last_name, //  New field
-      profession: user_profile.profession,
-      username: user_profile.username,
-      about_me: user_profile.about_me,
+      email: user.email,
       status: user.status,
     };
 
@@ -375,15 +370,15 @@ export async function loginUser(req, res) {
       expiresIn: "7d",
     });
 
+    // Set httpOnly cookies instead of returning tokens in response body
+    setAuthCookies(res, accessToken, refreshToken);
+
     return res.status(200).json({
       message: "Login successful",
       user_profile: {
         ...user_profile,
-        // ✅ first_name and last_name automatically included
       },
       status: user.status,
-      accessToken,
-      refreshToken,
     });
   } catch (err) {
     console.error("❌ loginUser error:", err);

@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
+import { setAuthCookies } from "../utils/cookieHelper.js";
 
 dotenv.config();
 
@@ -141,16 +142,10 @@ export const googleAuth = async (req, res) => {
     const user_profile = profileResult.rows[0];
     user_profile.email = user.email;
 
+    // Slim JWT payload — only immutable identifiers
     const jwtPayload = {
       id: user.id,
-      user_id: user_profile.user_id,
-      email: user_profile.email,
-      phone: user_profile.phone,
-      first_name: user_profile.first_name,
-      last_name: user_profile.last_name,
-      profession: user_profile.profession,
-      username: user_profile.username,
-      about_me: user_profile.about_me,
+      email: user.email,
       status: user.status,
     };
 
@@ -161,12 +156,13 @@ export const googleAuth = async (req, res) => {
       expiresIn: "7d",
     });
 
+    // Set httpOnly cookies instead of returning tokens in response body
+    setAuthCookies(res, accessToken, refreshToken);
+
     return res.status(200).json({
       message: "Google authentication successful",
       user_profile,
       status: user.status,
-      accessToken,
-      refreshToken,
     });
   } catch (error) {
     console.error("❌ googleAuth error:", error);

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { sendNotification } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
+import { setAdminCookie } from "../utils/cookieHelper.js";
 dotenv.config();
 
 // ---------------- Admin Login ----------------
@@ -25,10 +26,12 @@ export const adminLogin = async (req, res) => {
       { expiresIn: "2h" }
     );
 
+    // Set httpOnly admin cookie instead of returning token in response body
+    setAdminCookie(res, token);
+
     return res.status(200).json({
       status: "success",
       message: "Admin logged in successfully",
-      token,
       admin: {
         id: admin.id,
         full_name: admin.full_name,
