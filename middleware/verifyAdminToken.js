@@ -3,16 +3,13 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 
 dotenv.config();
-// Middleware to verify admin token
+// Middleware to verify admin token — reads from httpOnly cookie
 export const verifyAdminToken = (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader)
-      return res.status(401).json({ message: "Authorization header missing" });
-
-    const token = authHeader.split(" ")[1];
+    // Read admin token from httpOnly cookie instead of Authorization header
+    const token = req.cookies?.adminAccessToken;
     if (!token)
-      return res.status(401).json({ message: "Token not found" });
+      return res.status(401).json({ message: "Admin access token not found" });
 
     // verify using admin secret key
     const decoded = jwt.verify(token, process.env.ACCESS_SECRET_KEY);
