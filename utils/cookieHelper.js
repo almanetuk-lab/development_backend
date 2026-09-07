@@ -4,26 +4,27 @@
  */
 
 const isProduction = process.env.NODE_ENV === 'production';
+const sameSite = isProduction ? 'none' : 'lax';
 
 const COOKIE_OPTIONS = {
   accessToken: {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite,
     maxAge: 30 * 60 * 1000, // 30 minutes
     path: '/',
   },
   refreshToken: {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/api/refreshtoken',
   },
   adminAccessToken: {
     httpOnly: true,
     secure: isProduction,
-    sameSite: 'lax',
+    sameSite,
     maxAge: 2 * 60 * 60 * 1000, // 2 hours
     path: '/',
   },
