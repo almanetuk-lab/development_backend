@@ -15,6 +15,8 @@ import {
 import { generateSpiderGraphData } from "../services/spiderGraphService.js";
 
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
+import { safeParse } from "../validations/validate.js";
+import { profileUpdateSchema } from "../validations/profileSchemas.js";
 
 export const NORMALIZE_ENUMS = {
   gender: {
@@ -267,6 +269,16 @@ export const cleanEnum = (field, val) => {
 // 🟢 Update Profile 
 export const updateProfile = async (req, res) => {
   try {
+    // ── Zod Validation ──────────────────────────────────────────────────────
+    const validation = safeParse(profileUpdateSchema, req.body);
+    if (!validation.success) {
+      return res.status(400).json({
+        error: validation.error,
+        message: validation.error,
+        errors: validation.errors,
+      });
+    }
+
     const {
       email,
       first_name,
@@ -326,14 +338,6 @@ export const updateProfile = async (req, res) => {
       latitude,
       longitude,
     } = req.body;
-
-    // Required Fields Validation (only email, first_name, last_name are universally mandatory)
-    if (!email || !first_name || !last_name) {
-      return res.status(400).json({
-        error: "Email, First name, and Last name are required.",
-        message: "Email, First name, and Last name are required",
-      });
-    }
 
     const userId = req.user.id;
     // Check if dob and age already exist in database for this user
