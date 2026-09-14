@@ -10,14 +10,14 @@ import { sendMessageSchema, addReactionSchema, getMessagesParamsSchema, getMessa
 const router = express.Router();
 
 
-router.get("/api/chats/recent/:myUserId", getRecentChats);         
+router.get("/api/chats/recent/:myUserId", validateAccessToken, getRecentChats);         
 router.post("/api/chat/upload", validateAccessToken, checkFeatureGuard("message"), upload.single("file"), uploadFile);   //
-router.get("/api/users", getAllUsers); 
-router.get("/api/messages/:userId", validate(getMessagesParamsSchema, "params"), getMessagesForUser); 
-router.post("/api/messages",validateAccessToken, checkFeatureGuard("message"), validate(sendMessageSchema), getAllMessages); // 
-router.post("/api/reactions",validateAccessToken, checkFeatureGuard("message"), validate(addReactionSchema), addReaction);    //
-router.get("/api/reactions", getAllReactions);        
-router.delete("/api/messages/:id", validate(deleteMessageParamsSchema, "params"), deleteMessage); 
+router.get("/api/users", validateAccessToken, getAllUsers); 
+router.get("/api/messages/:userId", validateAccessToken, validate(getMessagesParamsSchema, "params"), getMessagesForUser); 
+router.post("/api/messages", validateAccessToken, checkFeatureGuard("message"), validate(sendMessageSchema), getAllMessages); // 
+router.post("/api/reactions", validateAccessToken, checkFeatureGuard("message"), validate(addReactionSchema), addReaction);    //
+router.get("/api/reactions", validateAccessToken, getAllReactions);        
+router.delete("/api/messages/:id", validateAccessToken, validate(deleteMessageParamsSchema, "params"), deleteMessage); 
 
 // ---------------- Get Chat Messages ----------------
 

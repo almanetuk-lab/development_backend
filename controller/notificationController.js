@@ -4,6 +4,11 @@ import { pool } from "../config/db.js";
 export const getNotifications = async (req, res) => {
   try {
     const { user_id } = req.params;
+    const authenticatedUserId = req.user?.id;
+
+    if (authenticatedUserId && String(authenticatedUserId) !== String(user_id)) {
+      return res.status(403).json({ message: "Forbidden: Cannot access another user's notifications" });
+    }
 
     const result = await pool.query(
       "SELECT * FROM notifications WHERE user_id = $1 ORDER BY created_at DESC",
@@ -21,11 +26,19 @@ export const getNotifications = async (req, res) => {
 export const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
+    const authenticatedUserId = req.user?.id;
 
-    await pool.query(
-      "UPDATE notifications SET is_read = TRUE WHERE id = $1",
-      [id]
-    );
+    if (authenticatedUserId) {
+      await pool.query(
+        "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2",
+        [id, authenticatedUserId]
+      );
+    } else {
+      await pool.query(
+        "UPDATE notifications SET is_read = TRUE WHERE id = $1",
+        [id]
+      );
+    }
 
     res.status(200).json({ message: "Notification marked as read" });
   } catch (error) {
@@ -63,9 +76,14 @@ export const createNotification = async (
 export const markNotificationsAsRead = async (req, res) => {
   try {
     const { userId } = req.params;
+    const authenticatedUserId = req.user?.id;
 
     if (!userId) {
       return res.status(400).json({ error: "Missing userId" });
+    }
+
+    if (authenticatedUserId && String(authenticatedUserId) !== String(userId)) {
+      return res.status(403).json({ error: "Forbidden: Cannot mark another user's notifications as read" });
     }
 
     const result = await pool.query(

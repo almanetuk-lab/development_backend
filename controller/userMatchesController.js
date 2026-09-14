@@ -76,13 +76,21 @@ export const getUserMatches = async (req, res) => {
 
         let allUsers = allUsersResult.rows;
 
-        // 4️⃣ Filter by gender preference if set (case-insensitive, whitespace-safe)
+        // 4️⃣ Filter by mutual gender preference if set (case-insensitive, whitespace-safe)
         if (userPreferenceGender.length) {
             const normalizedPrefGenders = userPreferenceGender
                 .map(g => String(g).trim().toLowerCase());
             allUsers = allUsers.filter(u =>
                 u.gender && normalizedPrefGenders.includes(String(u.gender).trim().toLowerCase())
             );
+        }
+
+        if (user.gender) {
+            const userGenderNorm = String(user.gender).trim().toLowerCase();
+            allUsers = allUsers.filter(u => {
+                const uPrefGenders = toArray(u.preference_gender).map(g => String(g).trim().toLowerCase());
+                return uPrefGenders.length === 0 || uPrefGenders.includes(userGenderNorm);
+            });
         }
 
         // 5️⃣ Calculate match scores
@@ -124,7 +132,7 @@ export const getUserMatches = async (req, res) => {
 
             // Personal Details
             if (isStringMatch(user.marital_status, u.marital_status)) score += 2;
-            if (isStringMatch(user.gender, u.gender)) score += 2;
+            if (userPreferenceGender.length && u.gender && userPreferenceGender.map(g => String(g).trim().toLowerCase()).includes(String(u.gender).trim().toLowerCase())) score += 2;
             if (isStringMatch(user.children_preference, u.children_preference)) score += 2;
             if (user.age && u.age) {
                 const ageDiff = Math.abs(Number(user.age) - Number(u.age));
