@@ -4,6 +4,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import http from "http";
 import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
 import { pool } from "./config/db.js"; // ✅ Use your existing DB connection
 import bodyParser from 'body-parser';
 import helmet from "helmet";
@@ -215,6 +216,31 @@ io.on("connection", (socket) => {
 
   // When frontend registers userId with socket
   socket.on("register_user", (userId) => {
+    let authUserId = null;
+    try {
+      const cookieHeader = socket.handshake.headers.cookie;
+      let token = socket.handshake.auth?.token;
+      if (!token && cookieHeader) {
+        const cookies = cookieHeader.split(';').reduce((acc, c) => {
+          const [k, ...v] = c.split('=');
+          if (k) acc[k.trim()] = decodeURIComponent(v.join('=').trim());
+          return acc;
+        }, {});
+        token = cookies.accessToken;
+      }
+      if (token) {
+        const decoded = jwt.verify(token, process.env.ACCESS_SECRET_KEY);
+        authUserId = String(decoded.id);
+      }
+    } catch (e) {
+      console.warn("⚠️ Socket register_user JWT auth failed:", e.message);
+    }
+
+    if (authUserId && String(userId) !== authUserId) {
+      console.error(`🚨 Security Alert: Socket ${socket.id} attempted to register as user ${userId} but authenticated as ${authUserId}`);
+      return socket.emit("error", { message: "Unauthorized socket registration" });
+    }
+
     const key = String(userId);
     // Store userId on socket for O(1) reverse lookup on disconnect
     socket.userId = key;

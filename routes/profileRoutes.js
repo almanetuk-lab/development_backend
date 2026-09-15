@@ -3,6 +3,8 @@ import { getProfile, updateProfile, updateLocation, getNearbyProfiles } from "..
 import { validateAccessToken } from "../middleware/verfiytoken.js";
 import upload from "../middleware/upload.js";
 import { checkFeatureGuard } from "../middleware/checkActivePlan.js";
+import { validate } from "../validations/validate.js";
+import { locationUpdateSchema } from "../validations/profileSchemas.js";
 
 const router = express.Router();
 
@@ -10,7 +12,7 @@ router.put("/api/editProfile", validateAccessToken, checkFeatureGuard("edit_prof
 router.get("/api/me", validateAccessToken, getProfile); // Get Logged-in User Profile
 
 // 📍 PostGIS Proximity Search Routes
-router.put("/api/profiles/location", validateAccessToken, updateLocation);
+router.put("/api/profiles/location", validateAccessToken, validate(locationUpdateSchema), updateLocation);
 router.get("/api/profiles/nearby", validateAccessToken, getNearbyProfiles);
 
 export default router;

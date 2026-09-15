@@ -427,10 +427,15 @@ export const getAllUsers = async (req, res) => {
 export const getMessagesForUser = async (req, res) => {
   try {
     const { userId } = req.params;
-    const { myUserId } = req.query;
+    const authenticatedUserId = req.user?.id;
+    const myUserId = authenticatedUserId || req.query.myUserId;
 
     if (!userId || !myUserId) {
       return res.status(400).json({ error: "Missing userId or myUserId" });
+    }
+
+    if (authenticatedUserId && req.query.myUserId && String(authenticatedUserId) !== String(req.query.myUserId)) {
+      return res.status(403).json({ error: "Forbidden: Cannot access another user's messages" });
     }
 
     const { rows } = await pool.query(
@@ -507,11 +512,25 @@ export const getMessagesForUser = async (req, res) => {
 export const getAllMessages = async (req, res) => {
   try {
     const { sender_id, receiver_id, content, attachment_url } = req.body;
+    const authenticatedUserId = req.user?.id;
+
+    if (authenticatedUserId && String(authenticatedUserId) !== String(sender_id)) {
+      return res.status(403).json({ error: "Forbidden: Cannot send message on behalf of another user" });
+    }
 
     if (!sender_id || !receiver_id || (!content && !attachment_url)) {
       return res.status(400).json({
         error: "sender_id, receiver_id and content or attachment required",
       });
+    }
+
+    if (String(sender_id) === String(receiver_id)) {
+      return res.status(400).json({ error: "You cannot send messages to yourself." });
+    }
+
+    const receiverCheck = await pool.query("SELECT id FROM users WHERE id = $1", [receiver_id]);
+    if (receiverCheck.rowCount === 0) {
+      return res.status(404).json({ error: "Recipient user does not exist." });
     }
 
     // 🔐 PLAN + MESSAGE LIMIT CHECK
@@ -706,8 +725,14 @@ export const getAllReactions = async (req, res) => {
 export const getRecentChats = async (req, res) => {
   try {
     const { myUserId } = req.params;
+    const authenticatedUserId = req.user?.id;
+
     if (!myUserId) {
       return res.status(400).json({ error: "Missing myUserId" });
+    }
+
+    if (authenticatedUserId && String(authenticatedUserId) !== String(myUserId)) {
+      return res.status(403).json({ error: "Forbidden: Cannot view another user's recent chats" });
     }
 
     const chats = await dbGetRecentChats(myUserId);
@@ -722,7 +747,7 @@ export const getRecentChats = async (req, res) => {
 export const deleteMessage = async (req, res) => {
   try {
     const messageId = req.params.id;
-    const userId = req.query.userId;
+    const userId = req.user?.id || req.query.userId;
 
     if (!messageId || !userId) {
       return res.status(400).json({ error: "Missing messageId or userId" });
@@ -737,7 +762,7 @@ export const deleteMessage = async (req, res) => {
     }
 
     if (String(msg.rows[0].sender_id) !== String(userId)) {
-      return res.status(403).json({ error: "Not allowed" });
+      return res.status(403).json({ error: "Not allowed: You can only delete your own messages" });
     }
 
     await pool.query("DELETE FROM messages WHERE id = $1", [messageId]);
