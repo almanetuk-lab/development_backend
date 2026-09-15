@@ -160,7 +160,7 @@ export const createCheckoutSession = async (req, res) => {
         [user_id, plan.id, payment_id, duration]
       );
 
-      const successUrl = `${frontendUrl}/#/payment-success?session_id=${dummySessionId}`;
+      const successUrl = `${frontendUrl}/payment-success?session_id=${dummySessionId}`;
       return res.json({ url: successUrl });
     }
 
@@ -177,8 +177,8 @@ export const createCheckoutSession = async (req, res) => {
           quantity: 1,
         },
       ],
-      success_url: `${frontendUrl}/#/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${frontendUrl}/#/payment-failed`,
+      success_url: `${frontendUrl}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${frontendUrl}/payment-failed`,
       metadata: {
         user_id: String(user_id),
         plan_id: String(plan.id),
@@ -208,6 +208,7 @@ export const createCheckoutSession = async (req, res) => {
 export const verifyCheckoutSession = async (req, res) => {
   try {
     const { session_id } = req.body;
+    const authenticatedUserId = req.user?.id;
 
     if (!session_id) {
       return res.status(400).json({ message: "Missing session_id" });
@@ -218,6 +219,10 @@ export const verifyCheckoutSession = async (req, res) => {
     }
 
     const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    if (authenticatedUserId && session.metadata?.user_id && String(session.metadata.user_id) !== String(authenticatedUserId)) {
+      return res.status(403).json({ success: false, message: "Forbidden: Payment session belongs to another user." });
+    }
 
     if (session.payment_status === "paid" || session.status === "complete") {
       const fulfillment = await fulfillPayment(session);

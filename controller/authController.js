@@ -320,7 +320,9 @@ export const registerUser = async (req, res) => {
 
 export async function loginUser(req, res) {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+
+    email = typeof email === "string" ? email.trim().toLowerCase() : "";
 
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password are required" });
@@ -330,13 +332,13 @@ export async function loginUser(req, res) {
     const { rows } = await pool.query(userQuery, [email]);
 
     if (rows.length === 0) {
-      return res.status(401).json({ error: "Invalid email" });
+      return res.status(401).json({ error: "Invalid email or password" });
     }
 
     const user = rows[0];
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: "Invalid Password" });
+      return res.status(401).json({ error: "Invalid email or password" });
     }
 
     const profileQuery = `
@@ -402,8 +404,7 @@ export const forgotPassword = async (req, res) => {
     const token = jwt.sign({ email }, process.env.JWT_SECRET, {
       expiresIn: "15m",
     });
-    // const resetLink = `${process.env.FRONTEND_URL}/reset-password/${token}`;
-    const resetLink = `${process.env.FRONTEND_URL}/#/reset-password/${token}`;
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${token}`;
 
 
     await sendEmail({
