@@ -7,7 +7,7 @@ import { validateAccessToken } from '../middleware/verfiytoken.js';
 const router = express.Router();
 
 router.post("/viewers/:viewedId", validateAccessToken, recentActivitiesAddNewViewer);
-router.get("/:userId/recentViewers", recentViewers);
+router.get("/:userId/recentViewers", validateAccessToken, recentViewers);
 router.get("/:userId/unreadMessages",validateAccessToken, getUnreadMessagesCount);
 
 export default router;
