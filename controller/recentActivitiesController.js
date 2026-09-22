@@ -28,7 +28,9 @@ export const recentActivitiesAddNewViewer = async (req, res) => {
 }
 
 export const recentViewers = async (req, res) => {
-    let { userId } = req.params; // Current logged in user ID
+    // Always the caller's own ID from the JWT — the :userId path param is ignored
+    // so one logged-in user cannot read another user's viewer list.
+    const userId = req.user.id;
     try {
         // Step 1: Fetch new viewers since last profile check
         const query = `
