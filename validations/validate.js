@@ -1,12 +1,18 @@
 import { ZodError } from "zod";
 
 /**
- * Express middleware factory that validates req.body, req.params, or req.query
- * against a Zod schema. Returns the first validation error as a 400 response.
+ * Express middleware factory that validates req.body or req.params against a
+ * Zod schema. Returns the first validation error as a 400 response.
  *
  * Usage:
  *   router.post("/api/register", validate(registerSchema), registerUser);
  *   router.get("/api/messages/:userId", validate(paramsSchema, "params"), getMessages);
+ *
+ * ⚠️ DO NOT call this with source "query". On Express 5, req.query is a
+ * getter-only accessor, so the `req[source] = parsed` line below throws
+ * `TypeError: Cannot set property query of #<IncomingMessage> which has only a
+ * getter` (this module is ESM, so the assignment is in strict mode and does not
+ * fail silently). Use `validateQuery` instead.
  */
 export const validate = (schema, source = "body") => {
   return (req, res, next) => {
@@ -33,6 +39,32 @@ export const validate = (schema, source = "body") => {
       // Unexpected error — pass to Express error handler
       next(err);
     }
+  };
+};
+
+/**
+ * Query-string equivalent of `validate`, for Express 5.
+ *
+ * Rather than reassigning req.query (impossible — see the warning above), the
+ * parsed result is exposed as `req.validatedQuery`. This is non-destructive:
+ * req.query still holds exactly what the client sent, which matters for audit
+ * logging and debugging.
+ *
+ * Usage:
+ *   router.get("/search", validateAccessToken, validateQuery(searchQuerySchema), searchProfiles);
+ */
+export const validateQuery = (schema) => {
+  return (req, res, next) => {
+    const result = safeParse(schema, req.query);
+    if (!result.success) {
+      return res.status(400).json({
+        error: result.error,
+        message: result.error,
+        errors: result.errors,
+      });
+    }
+    req.validatedQuery = result.data;
+    next();
   };
 };
 

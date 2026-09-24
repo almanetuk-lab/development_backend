@@ -136,6 +136,16 @@ export const testConnection = async () => {
     `);
     console.log("💳 Backfilling legacy plans allowed_features completed.");
 
+    // Search-quota de-duplication: lets GET /search charge one search per set of
+    // criteria rather than per request, now that searching is reactive.
+    console.log("🔍 Verifying user_plans search signature columns...");
+    await pool.query(`
+      ALTER TABLE user_plans
+      ADD COLUMN IF NOT EXISTS last_search_signature TEXT,
+      ADD COLUMN IF NOT EXISTS last_search_at TIMESTAMPTZ;
+    `);
+    console.log("🔍 user_plans search signature columns successfully verified.");
+
 
     // Dynamic table initialization for security_audit_logs
     console.log("🛡️ Verifying security_audit_logs table...");
