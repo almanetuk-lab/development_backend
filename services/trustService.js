@@ -30,6 +30,9 @@ const POINTS = {
   GHOSTING:     -(parseInt(process.env.GHOSTING_PENALTY_POINTS) || 20),
 };
 
+// ─── Fix: Daily cap on positive trust point gains ────────────────────────────
+const DAILY_POSITIVE_CAP = parseInt(process.env.DAILY_TRUST_CAP) || 15;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -56,6 +59,29 @@ const trustLevelFromScore = (score) => {
  */
 export const adjustTrustScore = async (userId, pointsChange, reason, handshakeId = null) => {
   try {
+    // ── Fix: Daily cap on positive trust points ──────────────────────────────
+    if (pointsChange > 0) {
+      const { rows: capRows } = await pool.query(
+        `SELECT COALESCE(SUM(points_change), 0) AS daily_total
+         FROM trust_history
+         WHERE user_id = $1 AND points_change > 0 AND created_at > NOW() - INTERVAL '24 hours'`,
+        [userId]
+      );
+      const dailyTotal = parseInt(capRows[0].daily_total, 10);
+
+      if (dailyTotal >= DAILY_POSITIVE_CAP) {
+        console.log(`[Trust] User ${userId}: daily cap reached (${dailyTotal}/${DAILY_POSITIVE_CAP}). Skipping +${pointsChange} (${reason})`);
+        return null;
+      }
+
+      // Clamp the award so it doesn't exceed the remaining daily cap
+      const remainingCap = DAILY_POSITIVE_CAP - dailyTotal;
+      if (pointsChange > remainingCap) {
+        console.log(`[Trust] User ${userId}: clamping +${pointsChange} → +${remainingCap} (daily cap ${dailyTotal}/${DAILY_POSITIVE_CAP})`);
+        pointsChange = remainingCap;
+      }
+    }
+
     // Fetch current score (fallback 100 if column not set yet)
     const { rows } = await pool.query(
       "SELECT trust_score FROM users WHERE id = $1",
@@ -105,17 +131,20 @@ export const awardHandshakePoints = async (userAId, userBId, handshakeId = null)
 
 /**
  * Analyses the message history between sender and receiver to determine
- * whether this message is the very first in the conversation or a reply,
- * and awards the appropriate trust points.
+ * whether trust points should be awarded.
  *
- * "Conversation Started" (+MESSAGE_REWARD_POINTS): the sender has never sent
- *   a message to this receiver before.
- * "Reply Received"       (+REPLY_REWARD_POINTS):  the receiver previously sent
- *   the last message in this thread and the sender is now replying.
+ * Fix: Mutual Engagement — No instant reward for one-way outreach.
+ * Points are only awarded when a genuine two-way conversation exists:
+ *
+ * "Reply Received"            (+REPLY_REWARD_POINTS):  the sender is replying
+ *   to the receiver's previous message.
+ * "Conversation Established"  (+MESSAGE_REWARD_POINTS): awarded to the
+ *   original initiator when the other person replies for the first time,
+ *   confirming mutual engagement.
  */
 export const trackMessageActivity = async (senderId, receiverId) => {
   try {
-    // Count all messages from sender → receiver
+    // Count all messages from sender → receiver (current message already in DB)
     const { rows: totalRows } = await pool.query(
       `SELECT COUNT(*) AS count FROM messages
        WHERE sender_id = $1 AND receiver_id = $2`,
@@ -123,10 +152,24 @@ export const trackMessageActivity = async (senderId, receiverId) => {
     );
     const totalFromSender = parseInt(totalRows[0].count, 10);
 
+    // Fix: No instant reward for one-way outreach.
+    // If this is the sender's first message to this receiver, check whether
+    // the receiver has already sent messages to the sender.
+    // - If NO prior messages from receiver → pure outreach, no reward.
+    // - If YES → this is actually a reply, proceed to reply detection below.
     if (totalFromSender === 1) {
-      // Very first message from this sender to this receiver
-      await adjustTrustScore(senderId, POINTS.MESSAGE, "Conversation Started");
-      return;
+      const { rows: reverseCheck } = await pool.query(
+        `SELECT COUNT(*) AS count FROM messages
+         WHERE sender_id = $1 AND receiver_id = $2`,
+        [receiverId, senderId]
+      );
+      const receiverHasMessaged = parseInt(reverseCheck[0].count, 10) > 0;
+
+      if (!receiverHasMessaged) {
+        // Truly one-way outreach — no reward yet.
+        // The sender will earn "Conversation Established" if/when the receiver replies.
+        return;
+      }
     }
 
     // Check if the most recent message in the thread was from the receiver
@@ -145,12 +188,20 @@ export const trackMessageActivity = async (senderId, receiverId) => {
       if (String(prevSenderId) === String(receiverId)) {
         // Sender is replying to the receiver's previous message
         await adjustTrustScore(senderId, POINTS.REPLY, "Reply Received");
+
+        // Fix: Mutual Engagement — if this is the sender's FIRST message to
+        // the receiver AND it's a reply, the conversation just became two-way.
+        // Award the original initiator (receiverId) for establishing a real connection.
+        if (totalFromSender === 1) {
+          await adjustTrustScore(receiverId, POINTS.MESSAGE, "Conversation Established");
+        }
       }
     }
   } catch (err) {
     console.warn("[Trust] trackMessageActivity failed:", err.message);
   }
 };
+
 
 // ─── Ghosting Detection ──────────────────────────────────────────────────────
 
