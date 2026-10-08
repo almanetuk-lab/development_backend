@@ -337,6 +337,7 @@ import { uploadToSupabase } from "../utils/supabaseUpload.js";
 import { createNotification } from "./notificationController.js";
 import { trackMessageActivity } from "../services/trustService.js";
 import { runAiConversation } from "../services/aiAgentService.js";
+import { checkContent, recordFlag } from "../services/contentModerationService.js";
 
 dotenv.config();
 
@@ -572,17 +573,25 @@ export const getAllMessages = async (req, res) => {
     }
 
     /* ⭐ SHRADDHA NEW CODE END */
+    // 🚩 MODERATION — flag abusive content; the message is still delivered
+    const moderation = checkContent(content);
+
     // ✅ SAVE MESSAGE
     const { rows } = await pool.query(
       `
-      INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
-      VALUES ($1, $2, $3, $4, FALSE, FALSE)
+      INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated, is_flagged)
+      VALUES ($1, $2, $3, $4, FALSE, FALSE, $5)
       RETURNING *
       `,
-      [sender_id, receiver_id, content, attachment_url],
+      [sender_id, receiver_id, content, attachment_url, moderation.isFlagged],
     );
 
     const savedMessage = rows[0];
+    if (moderation.isFlagged) {
+      recordFlag(savedMessage, moderation.matchedWords).catch((err) =>
+        console.error("❌ Failed to record moderation flag:", err.message),
+      );
+    }
     logAuditEvent(sender_id, "CHAT_SEND", { receiver_id, message_id: savedMessage.id, has_attachment: !!attachment_url }, req);
 
     // Module 8 — Track message activity for trust points (non-blocking)

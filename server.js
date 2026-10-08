@@ -211,6 +211,18 @@ console.log("✅ Socket connected");
 //  Track online users (userId → connection count) for multi-tab/device presence
 const onlineUsers = new Map();
 
+// Parse a single cookie value from the socket handshake headers
+const getHandshakeCookie = (socket, name) => {
+  const cookieHeader = socket.handshake.headers.cookie;
+  if (!cookieHeader) return undefined;
+  const cookies = cookieHeader.split(';').reduce((acc, c) => {
+    const [k, ...v] = c.split('=');
+    if (k) acc[k.trim()] = decodeURIComponent(v.join('=').trim());
+    return acc;
+  }, {});
+  return cookies[name];
+};
+
 io.on("connection", (socket) => {
   console.log(" User connected:", socket.id);
 
@@ -218,16 +230,8 @@ io.on("connection", (socket) => {
   socket.on("register_user", (userId) => {
     let authUserId = null;
     try {
-      const cookieHeader = socket.handshake.headers.cookie;
       let token = socket.handshake.auth?.token;
-      if (!token && cookieHeader) {
-        const cookies = cookieHeader.split(';').reduce((acc, c) => {
-          const [k, ...v] = c.split('=');
-          if (k) acc[k.trim()] = decodeURIComponent(v.join('=').trim());
-          return acc;
-        }, {});
-        token = cookies.accessToken;
-      }
+      if (!token) token = getHandshakeCookie(socket, "accessToken");
       if (token) {
         const decoded = jwt.verify(token, process.env.ACCESS_SECRET_KEY);
         authUserId = String(decoded.id);
@@ -258,6 +262,23 @@ io.on("connection", (socket) => {
 
     // Send the current online users snapshot to THIS socket only
     socket.emit("online_users_list", Array.from(onlineUsers.keys()));
+  });
+
+  // Admin dashboard joins the "admins" room for moderation alerts.
+  // Verified against the adminAccessToken cookie; never touches user presence.
+  socket.on("register_admin", () => {
+    try {
+      const token = getHandshakeCookie(socket, "adminAccessToken");
+      if (!token) throw new Error("Admin access token not found");
+      const decoded = jwt.verify(token, process.env.ACCESS_SECRET_KEY);
+      if (decoded.role !== "admin") throw new Error("Not an admin token");
+      socket.isAdmin = true;
+      socket.join("admins");
+      socket.emit("admin_registered");
+    } catch (e) {
+      console.warn("⚠️ Socket register_admin auth failed:", e.message);
+      socket.emit("error", { message: "Unauthorized admin socket registration" });
+    }
   });
 
   socket.on("disconnect", () => {

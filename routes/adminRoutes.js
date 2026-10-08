@@ -5,6 +5,9 @@ import { verifyAdminToken } from "../middleware/verifyAdminToken.js";
 import { validateAccessToken } from "../middleware/verfiytoken.js";
 import { getAuditLogs } from "../controller/adminAuditController.js";
 import { clearAdminCookie } from "../utils/cookieHelper.js";
+import { getFlaggedMessages, getFlaggedCount, dismissFlag, warnFlag, deleteFlaggedMessage } from "../controller/adminModerationController.js";
+import { validate, validateQuery } from "../validations/validate.js";
+import { flagIdParamsSchema, listFlagsQuerySchema, reviewActionSchema } from "../validations/moderationSchemas.js";
 
 const router = express.Router();
 
@@ -20,6 +23,13 @@ router.get("/api/admin/contact-messages", verifyAdminToken, getContactMessages);
 router.get("/api/admin/newsletter-subscriptions", verifyAdminToken, getNewsletterSubscriptions); // Get Newsletter Subscriptions
 router.delete("/api/admin/contact-messages/:id", verifyAdminToken, deleteContactMessage); // Delete Contact Message
 router.delete("/api/admin/newsletter-subscriptions/:id", verifyAdminToken, deleteNewsletterSubscription); // Delete Newsletter Subscription
+
+// Chat moderation — abuse alerts
+router.get("/api/admin/flagged-messages", verifyAdminToken, validateQuery(listFlagsQuerySchema), getFlaggedMessages); // List Flagged Messages
+router.get("/api/admin/flagged-messages/count", verifyAdminToken, getFlaggedCount); // Pending Flag Count
+router.post("/api/admin/flagged-messages/:id/dismiss", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), dismissFlag); // Dismiss Flag
+router.post("/api/admin/flagged-messages/:id/warn", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), warnFlag); // Warn Sender
+router.delete("/api/admin/flagged-messages/:id", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), deleteFlaggedMessage); // Remove Flagged Message
 
 // Admin logout — clears adminAccessToken cookie
 router.post("/api/admin/logout", (req, res) => {

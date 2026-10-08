@@ -5,6 +5,7 @@ import { io } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
 import { createNotification } from "../controller/notificationController.js";
+import { checkContent, recordFlag } from "./contentModerationService.js";
 
 dotenv.config();
 
@@ -290,13 +291,19 @@ Write a natural, concise reply (1–3 short sentences, ~500 chars max). Match th
 
 export const persistAiMessage = async ({ senderId, receiverId, content }) => {
   // INSERT AI message
+  const moderation = checkContent(content);
   const { rows } = await pool.query(
-    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
-     VALUES ($1, $2, $3, NULL, FALSE, TRUE)
+    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated, is_flagged)
+     VALUES ($1, $2, $3, NULL, FALSE, TRUE, $4)
      RETURNING *`,
-    [senderId, receiverId, content]
+    [senderId, receiverId, content, moderation.isFlagged]
   );
   const aiMessage = rows[0];
+  if (moderation.isFlagged) {
+    recordFlag(aiMessage, moderation.matchedWords).catch((err) =>
+      console.error("❌ [AIAgentService] Failed to record moderation flag:", err.message)
+    );
+  }
   logAuditEvent(senderId, "AI_AGENT_RESPONSE", { receiver_id: receiverId, message_id: aiMessage.id });
 
   // Emit via Socket.IO (same event as human messages)
@@ -534,13 +541,19 @@ const consumePlanQuota = async (userId) => {
 // ─────────────────────────────────────────────
 
 const persistAiMessageSilent = async ({ senderId, receiverId, content }) => {
+  const moderation = checkContent(content);
   const { rows } = await pool.query(
-    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
-     VALUES ($1, $2, $3, NULL, FALSE, TRUE)
+    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated, is_flagged)
+     VALUES ($1, $2, $3, NULL, FALSE, TRUE, $4)
      RETURNING *`,
-    [senderId, receiverId, content]
+    [senderId, receiverId, content, moderation.isFlagged]
   );
   const aiMessage = rows[0];
+  if (moderation.isFlagged) {
+    recordFlag(aiMessage, moderation.matchedWords).catch((err) =>
+      console.error("❌ [AIAgentService] Failed to record moderation flag:", err.message)
+    );
+  }
   io.emit("new_message", aiMessage);
   console.log(`📨 [AIAgentService] AI message (silent) persisted (sender: ${senderId}, receiver: ${receiverId})`);
   return aiMessage;
