@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { notBannedSql } from "../utils/banRules.js";
 // Recent Activities (Add New Viewer)
 
 export const recentActivitiesAddNewViewer = async (req, res) => {
@@ -41,6 +42,7 @@ export const recentViewers = async (req, res) => {
         JOIN profiles p ON pv.viewer_id = p.user_id
         WHERE pv.viewed_id = $1
         AND pv.viewer_id <> $1               -- exclude self-view
+        AND ${notBannedSql("pv.viewer_id")}  -- hide suspended members
         AND pv.viewed_at > NOW() - INTERVAL '90 days'  
         ORDER BY pv.viewed_at DESC;` // It will take the viewers who see the profile of logged in user with in 24 hours viewers 
 

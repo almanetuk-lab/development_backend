@@ -1,6 +1,7 @@
 // db.js
 import pkg from "pg";
 import dotenv from "dotenv";
+import { bannedSql } from "../utils/banRules.js";
 
 
 dotenv.config();
@@ -201,8 +202,9 @@ export const searchUsers = async (searchTerm) => {
       INITCAP(SPLIT_PART(email, '@', 1)) AS name,  -- Extract name part from email
       email,
       last_seen
-    FROM users
+    FROM users u
     WHERE email ILIKE $1
+      AND NOT ${bannedSql("u")}
     ORDER BY email
     LIMIT 50;
   `;
@@ -309,6 +311,8 @@ export const getRecentChats = async (myUserId) => {
       u.email,
       u.last_seen AS last_seen,
       p.image_url AS profile_picture_url,
+      -- Conversations with suspended members stay listed but are read-only
+      NOT ${bannedSql("u")} AS is_available,
 
       lm.content AS last_message,
       lm.created_at AS last_message_time,

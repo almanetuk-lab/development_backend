@@ -7,6 +7,7 @@ import bcrypt from "bcrypt";
 import { sendNotification } from "../server.js";
 import { sendEmail } from "../services/sendEmail.js";
 import { setAuthCookies } from "../utils/cookieHelper.js";
+import { getActiveBan, suspendedResponse } from "../services/accountBanService.js";
 
 //import { sendEmail } from "../emailService.js";
 
@@ -340,6 +341,10 @@ export async function loginUser(req, res) {
     if (!isMatch) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
+
+    // 🚫 Banned accounts get the suspension details instead of a session
+    const ban = await getActiveBan(user.id);
+    if (ban) return suspendedResponse(res, ban);
 
     const profileQuery = `
       SELECT id, user_id, first_name, last_name, profession, username, about_me

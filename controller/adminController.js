@@ -5,6 +5,7 @@ import { pool } from "../config/db.js";
 import { sendNotification } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { setAdminCookie } from "../utils/cookieHelper.js";
+import { banUser, liftBan, getBanDetails } from "../services/accountBanService.js";
 dotenv.config();
 
 // ---------------- Admin Login ----------------
@@ -44,16 +45,26 @@ export const adminLogin = async (req, res) => {
   }
 };
 
+// 404 if the user doesn't exist, 409 if they are suspended (must use Reactivate)
+const rejectStatusChange = async (res, userId) => {
+  const exists = await pool.query("SELECT 1 FROM users WHERE id = $1", [userId]);
+  if (!exists.rows.length) {
+    return res.status(404).json({ message: "User not found" });
+  }
+  return res.status(409).json({ message: "User is suspended. Use Reactivate to restore the account." });
+};
+
 //  Approve User
 export const approveUser = async (req, res) => {
   const approvedUser = req.body;
 
-  const updateQuery = `UPDATE users SET status='Approve', approved_by=$1, updated_at=NOW() WHERE id=$2 RETURNING *`;
+  // Suspended users are only restored through Reactivate, so the ban history stays consistent.
+  const updateQuery = `UPDATE users SET status='Approve', approved_by=$1, updated_at=NOW() WHERE id=$2 AND status <> 'Deactivate' RETURNING *`;
   const values = [approvedUser.approved_by, approvedUser.id];
   try {
     const result = await pool.query(updateQuery, values);
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "User not found" });
+      return rejectStatusChange(res, approvedUser.id);
     }
 
     logAuditEvent(req.admin?.id || approvedUser.approved_by || null, "USER_APPROVE", { target_user_id: approvedUser.id }, req);
@@ -91,14 +102,14 @@ export const onHoldUser = async (req, res) => {
       SET status = 'On Hold',
           reason = $1,
           updated_at = NOW()
-      WHERE id = $2::integer
+      WHERE id = $2::integer AND status <> 'Deactivate'
       RETURNING id, status, reason, updated_at
     `;
     const values = [reason || null, user_id];
     const result = await pool.query(updateQuery, values);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "User not found" });
+      return rejectStatusChange(res, user_id);
     }
 
     logAuditEvent(req.admin?.id || null, "USER_HOLD", { target_user_id: user_id, reason }, req);
@@ -123,44 +134,60 @@ export const onHoldUser = async (req, res) => {
   }
 };
 
-//  Deactivate User
+//  Deactivate (ban) User — timed or permanent; enforced by services/accountBanService.js
 export const deactivateUser = async (req, res) => {
   try {
-    const { user_id, reason } = req.body;
-    if (!user_id) {
-      return res.status(400).json({ message: "user_id is required" });
-    }
+    const { user_id, reason, duration_days, permanent, flag_id } = req.body;
 
-    const updateQuery = `
-      UPDATE users
-      SET status = 'Deactivate',
-          reason = $1
-      WHERE id = $2::integer
-      RETURNING id, status, reason
-    `;
-    const values = [reason || null, user_id];
-    const result = await pool.query(updateQuery, values);
-
-    if (result.rows.length === 0) {
+    const user = await banUser({
+      userId: user_id,
+      reason,
+      durationDays: duration_days,
+      permanent,
+      adminId: req.admin?.id ?? null,
+      sourceFlagId: flag_id ?? null,
+      req,
+    });
+    if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    logAuditEvent(req.admin?.id || null, "USER_DEACTIVATE", { target_user_id: user_id, reason }, req);
-
-    // ✅ Send notification
-    await sendNotification(
-      user_id,
-      "Account Deactivated",
-      `Your account has been deactivated. Reason: ${reason || "Not specified"}`
-    );
-
     return res.status(200).json({
       status: "success",
-      message: "User deactivate successfully",
-      user: result.rows[0],
+      message: user.is_permanent ? "User suspended permanently" : "User suspended",
+      user,
     });
   } catch (error) {
     console.error("Error deactivating user:", error);
+    return res.status(500).json({
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+//  Reactivate (unban) User
+export const reactivateUser = async (req, res) => {
+  try {
+    const { user_id, note } = req.body;
+
+    const user = await liftBan(user_id, {
+      reason: "reactivated",
+      adminId: req.admin?.id ?? null,
+      note: note || null,
+      req,
+    });
+    if (!user) {
+      return res.status(409).json({ message: "User is not currently suspended" });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      message: "User reactivated",
+      user,
+    });
+  } catch (error) {
+    console.error("Error reactivating user:", error);
     return res.status(500).json({
       message: "Internal server error",
       error: error.message,
@@ -177,6 +204,7 @@ export const getAllUsers = async (req, res) => {
         u.email,
         u.password,
         u.status,
+        u.banned_until,
         u.created_at,
         u.updated_at,
         p.first_name,
@@ -198,6 +226,7 @@ export const getAllUsers = async (req, res) => {
       password: user.password, // (admin view only)
       profession: user.profession || null,
       status: user.status, // ✅ DIRECT FROM DB
+      banned_until: user.banned_until,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
     }));
@@ -236,6 +265,7 @@ export const getAllUserDetails = async (req, res) => {
         u.id AS user_id,
         u.email,
         u.status AS current_status,
+        u.reason AS status_reason,
         u.created_at AS registration_date,
 
         -- Profile fields
@@ -321,10 +351,12 @@ export const getAllUserDetails = async (req, res) => {
       });
     }
 
+    const { ban, ban_history } = await getBanDetails(id);
+
     return res.status(200).json({
       status: "success",
       message: "User full details fetched successfully",
-      user: rows[0],
+      user: { ...rows[0], ban, ban_history },
     });
 
   } catch (error) {
