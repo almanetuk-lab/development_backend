@@ -1,4 +1,5 @@
 import { pool } from '../config/db.js';
+import { isBanActive } from '../utils/banRules.js';
 import { generateAndCacheCompatibility } from './matchController.js';
 import { logAuditEvent } from '../utils/auditLogger.js';
 import { computeTrustStatus } from '../services/trustService.js';
@@ -11,6 +12,7 @@ export const userProfile = async (req, res) => {
         u.id         AS user_id,
         u.email,
         u.status,
+        u.banned_until,
         u.trust_score,
         u.created_at AS registered_at,
 
@@ -84,8 +86,14 @@ export const userProfile = async (req, res) => {
         return res.json({ message: "User does not exist" });
     }
 
-    // Auto-generate compatibility in background when profile is viewed
+    // Suspended members are hidden from everyone else
     const currentUserId = req.user?.id;
+    if (Number(currentUserId) !== Number(userId) && isBanActive(user)) {
+        return res.status(404).json({ message: "User does not exist" });
+    }
+    delete user.banned_until;
+
+    // Auto-generate compatibility in background when profile is viewed
     if (currentUserId && Number(currentUserId) !== Number(userId)) {
         console.log(`🧬 Profile View Trigger: Generating compatibility in background for viewer ${currentUserId} and target ${userId}...`);
         logAuditEvent(currentUserId, "PROFILE_VIEW", { viewed_user_id: userId }, req);

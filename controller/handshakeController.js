@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { notBannedSql } from "../utils/banRules.js";
 import { generateHandshake } from "../services/handshakeService.js";
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 import {
@@ -152,7 +153,10 @@ export const initiateHandshake = async (req, res) => {
     }
 
     // ── Guard: target user must exist ────────────────────────────────────────
-    const userCheck = await pool.query("SELECT id FROM users WHERE id = $1 LIMIT 1", [targetId]);
+    const userCheck = await pool.query(
+      `SELECT id FROM users WHERE id = $1 AND ${notBannedSql("users.id")} LIMIT 1`,
+      [targetId]
+    );
     if (userCheck.rows.length === 0) {
       return res.status(404).json({ message: "Target user not found" });
     }

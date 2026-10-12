@@ -56,6 +56,8 @@ import digitalTwinRoutes from "./routes/digitalTwinRoutes.js";
 import handshakeRoutes from "./routes/handshakeRoutes.js";
 import aiAgentRoutes from "./routes/aiAgentRoutes.js";
 import { verifySentimentSchema } from "./utils/schemaValidator.js";
+import { getActiveBan, liftExpiredBans } from "./services/accountBanService.js";
+import { suspensionPayload } from "./utils/banRules.js";
 dotenv.config();
 
 const app = express();
@@ -227,7 +229,7 @@ io.on("connection", (socket) => {
   console.log(" User connected:", socket.id);
 
   // When frontend registers userId with socket
-  socket.on("register_user", (userId) => {
+  socket.on("register_user", async (userId) => {
     let authUserId = null;
     try {
       let token = socket.handshake.auth?.token;
@@ -244,6 +246,19 @@ io.on("connection", (socket) => {
       console.error(`🚨 Security Alert: Socket ${socket.id} attempted to register as user ${userId} but authenticated as ${authUserId}`);
       return socket.emit("error", { message: "Unauthorized socket registration" });
     }
+
+    // Banned users never join their room or show as online
+    try {
+      const ban = await getActiveBan(userId);
+      if (ban) {
+        socket.emit("account_suspended", suspensionPayload(ban));
+        return socket.disconnect(true);
+      }
+    } catch (e) {
+      console.error("❌ Socket ban check failed:", e.message);
+    }
+    // The socket may have dropped while the ban lookup was in flight
+    if (!socket.connected) return;
 
     const key = String(userId);
     // Store userId on socket for O(1) reverse lookup on disconnect
@@ -399,6 +414,11 @@ app.use((err, req, res, next) => {
 //app.use(express.urlencoded({ extended: true })); 
 const port = process.env.PORT || 3435;
 server.listen(port, () => console.log(`🚀 Server running on localhost:${port}`));
+
+// Lift bans whose end date has passed (also lifted lazily on the user's next request)
+const BAN_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+liftExpiredBans();
+setInterval(liftExpiredBans, BAN_SWEEP_INTERVAL_MS);
 
 export { app, io, onlineUsers };
 

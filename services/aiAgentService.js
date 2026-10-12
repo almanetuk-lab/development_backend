@@ -6,6 +6,17 @@ import { logAuditEvent } from "../utils/auditLogger.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
 import { createNotification } from "../controller/notificationController.js";
 import { checkContent, recordFlag } from "./contentModerationService.js";
+import { bannedSql } from "../utils/banRules.js";
+
+// True if either user is suspended — a suspended member's agent never speaks,
+// and nobody's agent replies to them.
+const eitherUserBanned = async (userIdA, userIdB) => {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM users u WHERE u.id = ANY($1::int[]) AND ${bannedSql("u")} LIMIT 1`,
+    [[userIdA, userIdB]]
+  );
+  return rows.length > 0;
+};
 
 dotenv.config();
 
@@ -626,6 +637,10 @@ export const runAiConversation = async (humanMessage) => {
       console.log(`🤖 [AIConversation] No active plan or AI Agent access for receiver ${originalReceiverId}`);
       return;
     }
+    if (await eitherUserBanned(originalSenderId, originalReceiverId)) {
+      console.log(`🤖 [AIConversation] Skipping — a participant is suspended`);
+      return;
+    }
 
     // Comfortability check (symmetric — covers both directions)
     const isComfortable = await checkProfileComfortability(originalSenderId, originalReceiverId);
@@ -677,6 +692,12 @@ export const runAiConversation = async (humanMessage) => {
     for (let i = 0; i < maxMessages; i++) {
       // Natural delay between AI messages (skip delay for the very first reply)
       if (i > 0) await sleep(AI_REPLY_DELAY_MS);
+
+      // Re-check: a ban mid-burst stops the exchange
+      if (await eitherUserBanned(currentSenderId, currentReceiverId)) {
+        console.log(`🤖 [AIConversation] A participant was suspended at round ${i + 1} — stopping`);
+        break;
+      }
 
       // Re-check: AI still enabled?
       const cfg = await getAgentConfig(currentSenderId);

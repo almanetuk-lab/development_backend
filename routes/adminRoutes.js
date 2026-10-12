@@ -1,6 +1,6 @@
 // routes/adminRoutes.js
 import express from "express";
-import { adminLogin, approveUser, deactivateUser, getAllUserDetails, getAllUsers, onHoldUser, getContactMessages, getNewsletterSubscriptions, deleteContactMessage, deleteNewsletterSubscription } from "../controller/adminController.js";
+import { adminLogin, approveUser, deactivateUser, reactivateUser, getAllUserDetails, getAllUsers, onHoldUser, getContactMessages, getNewsletterSubscriptions, deleteContactMessage, deleteNewsletterSubscription } from "../controller/adminController.js";
 import { verifyAdminToken } from "../middleware/verifyAdminToken.js";
 import { validateAccessToken } from "../middleware/verfiytoken.js";
 import { getAuditLogs } from "../controller/adminAuditController.js";
@@ -8,6 +8,7 @@ import { clearAdminCookie } from "../utils/cookieHelper.js";
 import { getFlaggedMessages, getFlaggedCount, dismissFlag, warnFlag, deleteFlaggedMessage } from "../controller/adminModerationController.js";
 import { validate, validateQuery } from "../validations/validate.js";
 import { flagIdParamsSchema, listFlagsQuerySchema, reviewActionSchema } from "../validations/moderationSchemas.js";
+import { banUserSchema, reactivateUserSchema } from "../validations/adminSchemas.js";
 
 const router = express.Router();
 
@@ -15,7 +16,8 @@ const router = express.Router();
 router.post("/api/admin/login", adminLogin); // Admin login
 router.post("/api/admin/approveUser", verifyAdminToken, approveUser); // Approve User
 router.post("/api/admin/on-hold", verifyAdminToken, onHoldUser); // On Hold User
-router.post("/api/admin/deactivate", verifyAdminToken, deactivateUser); // Deactivate User
+router.post("/api/admin/deactivate", verifyAdminToken, validate(banUserSchema), deactivateUser); // Deactivate (ban) User
+router.post("/api/admin/reactivate", verifyAdminToken, validate(reactivateUserSchema), reactivateUser); // Reactivate (unban) User
 router.get("/api/admin/users", validateAccessToken, getAllUsers); // Get All Users
 router.get("/api/admin/getdetails/:id", validateAccessToken, getAllUserDetails);  // Get User Details by ID
 router.get("/api/admin/audit-logs", verifyAdminToken, getAuditLogs); // Get Admin Audit Logs

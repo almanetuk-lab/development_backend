@@ -4,6 +4,7 @@ import bcrypt from "bcrypt";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { setAuthCookies } from "../utils/cookieHelper.js";
+import { getActiveBan, suspendedResponse } from "../services/accountBanService.js";
 
 dotenv.config();
 
@@ -108,6 +109,10 @@ export const googleAuth = async (req, res) => {
       );
     } else {
       user = existingUser.rows[0];
+
+      // 🚫 Banned accounts get the suspension details instead of a session
+      const ban = await getActiveBan(user.id);
+      if (ban) return suspendedResponse(res, ban);
 
       await pool.query(
         `UPDATE users SET auth_provider = 'google', is_email_verified = TRUE WHERE id = $1`,

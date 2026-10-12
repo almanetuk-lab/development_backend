@@ -14,6 +14,7 @@
  */
 
 import { pool } from "../config/db.js";
+import { notBannedSql } from "../utils/banRules.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 dotenv.config();
@@ -235,6 +236,8 @@ export const detectActiveGhostingAlert = async (userId) => {
               OR (hs.user_b_id = m.sender_id AND hs.user_a_id = $1)
        WHERE m.receiver_id = $1
          AND m.created_at < $2
+         -- Not replying to a suspended member isn't ghosting (they can't receive replies)
+         AND ${notBannedSql("m.sender_id")}
          AND NOT EXISTS (
            -- User has replied after this message
            SELECT 1 FROM messages reply
