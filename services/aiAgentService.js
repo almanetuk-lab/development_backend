@@ -5,6 +5,18 @@ import { io } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
 import { createNotification } from "../controller/notificationController.js";
+import { checkContent, recordFlag } from "./contentModerationService.js";
+import { bannedSql } from "../utils/banRules.js";
+
+// True if either user is suspended — a suspended member's agent never speaks,
+// and nobody's agent replies to them.
+const eitherUserBanned = async (userIdA, userIdB) => {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM users u WHERE u.id = ANY($1::int[]) AND ${bannedSql("u")} LIMIT 1`,
+    [[userIdA, userIdB]]
+  );
+  return rows.length > 0;
+};
 
 dotenv.config();
 
@@ -290,13 +302,19 @@ Write a natural, concise reply (1–3 short sentences, ~500 chars max). Match th
 
 export const persistAiMessage = async ({ senderId, receiverId, content }) => {
   // INSERT AI message
+  const moderation = checkContent(content);
   const { rows } = await pool.query(
-    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
-     VALUES ($1, $2, $3, NULL, FALSE, TRUE)
+    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated, is_flagged)
+     VALUES ($1, $2, $3, NULL, FALSE, TRUE, $4)
      RETURNING *`,
-    [senderId, receiverId, content]
+    [senderId, receiverId, content, moderation.isFlagged]
   );
   const aiMessage = rows[0];
+  if (moderation.isFlagged) {
+    recordFlag(aiMessage, moderation.matchedWords).catch((err) =>
+      console.error("❌ [AIAgentService] Failed to record moderation flag:", err.message)
+    );
+  }
   logAuditEvent(senderId, "AI_AGENT_RESPONSE", { receiver_id: receiverId, message_id: aiMessage.id });
 
   // Emit via Socket.IO (same event as human messages)
@@ -534,13 +552,19 @@ const consumePlanQuota = async (userId) => {
 // ─────────────────────────────────────────────
 
 const persistAiMessageSilent = async ({ senderId, receiverId, content }) => {
+  const moderation = checkContent(content);
   const { rows } = await pool.query(
-    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
-     VALUES ($1, $2, $3, NULL, FALSE, TRUE)
+    `INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated, is_flagged)
+     VALUES ($1, $2, $3, NULL, FALSE, TRUE, $4)
      RETURNING *`,
-    [senderId, receiverId, content]
+    [senderId, receiverId, content, moderation.isFlagged]
   );
   const aiMessage = rows[0];
+  if (moderation.isFlagged) {
+    recordFlag(aiMessage, moderation.matchedWords).catch((err) =>
+      console.error("❌ [AIAgentService] Failed to record moderation flag:", err.message)
+    );
+  }
   io.emit("new_message", aiMessage);
   console.log(`📨 [AIAgentService] AI message (silent) persisted (sender: ${senderId}, receiver: ${receiverId})`);
   return aiMessage;
@@ -613,6 +637,10 @@ export const runAiConversation = async (humanMessage) => {
       console.log(`🤖 [AIConversation] No active plan or AI Agent access for receiver ${originalReceiverId}`);
       return;
     }
+    if (await eitherUserBanned(originalSenderId, originalReceiverId)) {
+      console.log(`🤖 [AIConversation] Skipping — a participant is suspended`);
+      return;
+    }
 
     // Comfortability check (symmetric — covers both directions)
     const isComfortable = await checkProfileComfortability(originalSenderId, originalReceiverId);
@@ -664,6 +692,12 @@ export const runAiConversation = async (humanMessage) => {
     for (let i = 0; i < maxMessages; i++) {
       // Natural delay between AI messages (skip delay for the very first reply)
       if (i > 0) await sleep(AI_REPLY_DELAY_MS);
+
+      // Re-check: a ban mid-burst stops the exchange
+      if (await eitherUserBanned(currentSenderId, currentReceiverId)) {
+        console.log(`🤖 [AIConversation] A participant was suspended at round ${i + 1} — stopping`);
+        break;
+      }
 
       // Re-check: AI still enabled?
       const cfg = await getAgentConfig(currentSenderId);

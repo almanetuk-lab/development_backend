@@ -31,6 +31,7 @@ export const getUsersByType = async (req, res) => {
         p.age,
         p.profession,
         u.status,
+        u.banned_until,
         u.created_at
       FROM users u
       LEFT JOIN profiles p ON p.user_id = u.id

@@ -1,4 +1,5 @@
 import { LIMITS, GENDER_SYNONYMS } from "../validations/searchSchemas.js";
+import { notBannedSql } from "../utils/banRules.js";
 
 /**
  * Builds the WHERE clause for GET /search, once, for both the COUNT query and
@@ -196,6 +197,8 @@ export function buildSearchQuery({ search_mode, filters = {}, coords = null, exc
   }
 
   if (excludeUserId) where.push(`pr.user_id <> ${bag.add(excludeUserId)}`);
+  // Suspended members never appear in search
+  where.push(notBannedSql("pr.user_id"));
 
   return {
     whereSql: `WHERE ${where.join("\n        AND ")}`,

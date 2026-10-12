@@ -6,6 +6,7 @@ import pkg from 'pg';
 const { Pool } = pkg;
 import dotenv from 'dotenv';
 import { setAuthCookies } from '../utils/cookieHelper.js';
+import { getActiveBan, suspendedResponse } from '../services/accountBanService.js';
 
 dotenv.config();
 
@@ -109,6 +110,10 @@ class LinkedInAuthController {
                     ]
                 );
             } else {
+                // 🚫 Banned accounts get the suspension details instead of a session
+                const ban = await getActiveBan(userResult.rows[0].id);
+                if (ban) return suspendedResponse(res, ban);
+
                 console.log('🔄 Updating existing user for LinkedIn login...');
                 const updateResult = await pool.query(
                     `UPDATE users 

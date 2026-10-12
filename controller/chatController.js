@@ -337,6 +337,14 @@ import { uploadToSupabase } from "../utils/supabaseUpload.js";
 import { createNotification } from "./notificationController.js";
 import { trackMessageActivity } from "../services/trustService.js";
 import { runAiConversation } from "../services/aiAgentService.js";
+import { checkContent, recordFlag } from "../services/contentModerationService.js";
+import { bannedSql, RECIPIENT_UNAVAILABLE_CODE } from "../utils/banRules.js";
+
+const recipientUnavailable = (res) =>
+  res.status(403).json({
+    code: RECIPIENT_UNAVAILABLE_CODE,
+    error: "This member is no longer available.",
+  });
 
 dotenv.config();
 
@@ -528,9 +536,16 @@ export const getAllMessages = async (req, res) => {
       return res.status(400).json({ error: "You cannot send messages to yourself." });
     }
 
-    const receiverCheck = await pool.query("SELECT id FROM users WHERE id = $1", [receiver_id]);
+    const receiverCheck = await pool.query(
+      `SELECT id, ${bannedSql("users")} AS is_banned FROM users WHERE id = $1`,
+      [receiver_id],
+    );
     if (receiverCheck.rowCount === 0) {
       return res.status(404).json({ error: "Recipient user does not exist." });
+    }
+    // Chats with suspended members are read-only
+    if (receiverCheck.rows[0].is_banned) {
+      return recipientUnavailable(res);
     }
 
     // 🔐 PLAN + MESSAGE LIMIT CHECK
@@ -572,17 +587,25 @@ export const getAllMessages = async (req, res) => {
     }
 
     /* ⭐ SHRADDHA NEW CODE END */
+    // 🚩 MODERATION — flag abusive content; the message is still delivered
+    const moderation = checkContent(content);
+
     // ✅ SAVE MESSAGE
     const { rows } = await pool.query(
       `
-      INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated)
-      VALUES ($1, $2, $3, $4, FALSE, FALSE)
+      INSERT INTO messages (sender_id, receiver_id, content, attachment_url, is_read, is_ai_generated, is_flagged)
+      VALUES ($1, $2, $3, $4, FALSE, FALSE, $5)
       RETURNING *
       `,
-      [sender_id, receiver_id, content, attachment_url],
+      [sender_id, receiver_id, content, attachment_url, moderation.isFlagged],
     );
 
     const savedMessage = rows[0];
+    if (moderation.isFlagged) {
+      recordFlag(savedMessage, moderation.matchedWords).catch((err) =>
+        console.error("❌ Failed to record moderation flag:", err.message),
+      );
+    }
     logAuditEvent(sender_id, "CHAT_SEND", { receiver_id, message_id: savedMessage.id, has_attachment: !!attachment_url }, req);
 
     // Module 8 — Track message activity for trust points (non-blocking)
@@ -652,6 +675,27 @@ export const addReaction = async (req, res) => {
   }
 
   try {
+    // Look the message up first so reactions on missing messages or with
+    // suspended members are rejected before anything is written.
+    const messageResult = await pool.query(
+      `SELECT sender_id, receiver_id FROM messages WHERE id = $1`,
+      [message_id],
+    );
+    if (messageResult.rows.length === 0) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+    const message = messageResult.rows[0];
+    const reactionReceiverId =
+      message.sender_id === user_id ? message.receiver_id : message.sender_id;
+
+    const partnerCheck = await pool.query(
+      `SELECT ${bannedSql("users")} AS is_banned FROM users WHERE id = $1`,
+      [reactionReceiverId],
+    );
+    if (partnerCheck.rows[0]?.is_banned) {
+      return recipientUnavailable(res);
+    }
+
     const { rows } = await pool.query(
       `
       INSERT INTO reactions (message_id, user_id, emoji)
@@ -665,16 +709,6 @@ export const addReaction = async (req, res) => {
 
     const reaction = rows[0];
     logAuditEvent(user_id, "CHAT_REACTION", { message_id, emoji }, req);
-    const messageResult = await pool.query(
-      `SELECT sender_id, receiver_id FROM messages WHERE id = $1`,
-      [message_id],
-    );
-    if (messageResult.rows.length === 0) {
-      return res.status(404).json({ error: "Message not found" });
-    }
-    const message = messageResult.rows[0];
-    const reactionReceiverId =
-      message.sender_id === user_id ? message.receiver_id : message.sender_id;
 
     const userResult = await pool.query(
       `SELECT first_name, last_name FROM profiles WHERE user_id = $1`,

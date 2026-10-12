@@ -1,4 +1,5 @@
 import { pool } from "../config/db.js";
+import { notBannedSql } from "../utils/banRules.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { extractIntentTags, enrichContextualMetadata } from "../services/geminiService.js";
 import { buildSemanticProfileText, generateEmbedding } from "../services/embeddingService.js";
@@ -1312,8 +1313,8 @@ export const getNearbyProfiles = async (req, res) => {
     }
 
     const query = `
-      SELECT * FROM get_nearby_profiles($1, $2, $3)
-      WHERE user_id != $4;
+      SELECT * FROM get_nearby_profiles($1, $2, $3) np
+      WHERE np.user_id != $4 AND ${notBannedSql("np.user_id")};
     `;
 
     const { rows } = await pool.query(query, [lat, lon, radius, userId]);
