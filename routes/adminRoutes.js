@@ -2,7 +2,6 @@
 import express from "express";
 import { adminLogin, approveUser, deactivateUser, reactivateUser, getAllUserDetails, getAllUsers, onHoldUser, getContactMessages, getNewsletterSubscriptions, deleteContactMessage, deleteNewsletterSubscription } from "../controller/adminController.js";
 import { verifyAdminToken } from "../middleware/verifyAdminToken.js";
-import { validateAccessToken } from "../middleware/verfiytoken.js";
 import { getAuditLogs } from "../controller/adminAuditController.js";
 import { clearAdminCookie } from "../utils/cookieHelper.js";
 import { getFlaggedMessages, getFlaggedCount, dismissFlag, warnFlag, deleteFlaggedMessage } from "../controller/adminModerationController.js";
@@ -18,8 +17,8 @@ router.post("/api/admin/approveUser", verifyAdminToken, approveUser); // Approve
 router.post("/api/admin/on-hold", verifyAdminToken, onHoldUser); // On Hold User
 router.post("/api/admin/deactivate", verifyAdminToken, validate(banUserSchema), deactivateUser); // Deactivate (ban) User
 router.post("/api/admin/reactivate", verifyAdminToken, validate(reactivateUserSchema), reactivateUser); // Reactivate (unban) User
-router.get("/api/admin/users", validateAccessToken, getAllUsers); // Get All Users
-router.get("/api/admin/getdetails/:id", validateAccessToken, getAllUserDetails);  // Get User Details by ID
+router.get("/api/admin/users", verifyAdminToken, getAllUsers); // Get All Users
+router.get("/api/admin/getdetails/:id", verifyAdminToken, getAllUserDetails);  // Get User Details by ID
 router.get("/api/admin/audit-logs", verifyAdminToken, getAuditLogs); // Get Admin Audit Logs
 router.get("/api/admin/contact-messages", verifyAdminToken, getContactMessages); // Get Contact Messages
 router.get("/api/admin/newsletter-subscriptions", verifyAdminToken, getNewsletterSubscriptions); // Get Newsletter Subscriptions
