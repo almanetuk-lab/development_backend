@@ -33,7 +33,7 @@ export const MODE_FIELDS = {
   basic: ["q", "profession", "city"],
   advanced: [
     "first_name", "last_name", "gender", "marital_status", "profession",
-    "skills", "interests", "city", "state", "min_age", "max_age",
+    "skills", "interests", "hobbies", "city", "state", "min_age", "max_age",
   ],
   nearme: ["radius", "city"],
   members: ["q", "gender", "city", "min_age", "max_age"],
@@ -147,6 +147,7 @@ export const searchQuerySchema = z
     state: optText("State", 80),
     skills: optText("Skills"),
     interests: optText("Interests"),
+    hobbies: optText("Hobbies"),
     gender: optEnum("Gender", PROFILE_ENUMS.gender),
     marital_status: optEnum("Marital status", PROFILE_ENUMS.marital_status),
     min_age: optInt("Minimum age", LIMITS.MIN_AGE, LIMITS.MAX_AGE),

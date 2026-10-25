@@ -52,6 +52,7 @@ export const SEARCH_RESULT_COLUMNS = [
   "pr.about",
   "pr.skills",
   "pr.interests",
+  "pr.hobbies",
   "pr.image_url",
 ].join(",\n         ");
 
@@ -173,6 +174,7 @@ export function buildSearchQuery({ search_mode, filters = {}, coords = null, exc
     }
     if (filters.skills) where.push(likeJsonColumn("pr.skills", filters.skills, bag));
     if (filters.interests) where.push(likeJsonColumn("pr.interests", filters.interests, bag));
+    if (filters.hobbies) where.push(likeJsonColumn("pr.hobbies", filters.hobbies, bag));
     applyAgeRange(filters, where, bag);
   }
 
