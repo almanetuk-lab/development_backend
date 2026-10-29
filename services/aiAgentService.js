@@ -7,6 +7,8 @@ import { generateAndCacheCompatibility } from "../controller/matchController.js"
 import { createNotification } from "../controller/notificationController.js";
 import { checkContent, recordFlag } from "./contentModerationService.js";
 import { bannedSql } from "../utils/banRules.js";
+import { activeMuteSql } from "../utils/moderationRules.js";
+
 
 // True if either user is suspended — a suspended member's agent never speaks,
 // and nobody's agent replies to them.
@@ -14,6 +16,15 @@ const eitherUserBanned = async (userIdA, userIdB) => {
   const { rows } = await pool.query(
     `SELECT 1 FROM users u WHERE u.id = ANY($1::int[]) AND ${bannedSql("u")} LIMIT 1`,
     [[userIdA, userIdB]]
+  );
+  return rows.length > 0;
+};
+
+// True if the user is chat-muted — a muted member's agent doesn't speak for them.
+const userChatMuted = async (userId) => {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM user_chat_mutes m WHERE m.user_id = $1 AND ${activeMuteSql("m")} LIMIT 1`,
+    [userId]
   );
   return rows.length > 0;
 };
@@ -311,14 +322,15 @@ export const persistAiMessage = async ({ senderId, receiverId, content }) => {
   );
   const aiMessage = rows[0];
   if (moderation.isFlagged) {
-    recordFlag(aiMessage, moderation.matchedWords).catch((err) =>
+    recordFlag(aiMessage, moderation.matchedWords, moderation.severity).catch((err) =>
       console.error("❌ [AIAgentService] Failed to record moderation flag:", err.message)
     );
   }
   logAuditEvent(senderId, "AI_AGENT_RESPONSE", { receiver_id: receiverId, message_id: aiMessage.id });
 
-  // Emit via Socket.IO (same event as human messages)
-  io.emit("new_message", aiMessage);
+  // Emit via Socket.IO (same event and room-based routing as human messages)
+  io.to(String(receiverId)).emit("new_message", aiMessage);
+  io.to(String(senderId)).emit("new_message", aiMessage);
 
   // Get sender display name for notification
   const nameResult = await pool.query(
@@ -561,11 +573,13 @@ const persistAiMessageSilent = async ({ senderId, receiverId, content }) => {
   );
   const aiMessage = rows[0];
   if (moderation.isFlagged) {
-    recordFlag(aiMessage, moderation.matchedWords).catch((err) =>
+    recordFlag(aiMessage, moderation.matchedWords, moderation.severity).catch((err) =>
       console.error("❌ [AIAgentService] Failed to record moderation flag:", err.message)
     );
   }
-  io.emit("new_message", aiMessage);
+  // Only the two participants (all their tabs/devices) receive the message
+  io.to(String(receiverId)).emit("new_message", aiMessage);
+  io.to(String(senderId)).emit("new_message", aiMessage);
   console.log(`📨 [AIAgentService] AI message (silent) persisted (sender: ${senderId}, receiver: ${receiverId})`);
   return aiMessage;
 };
@@ -641,6 +655,10 @@ export const runAiConversation = async (humanMessage) => {
       console.log(`🤖 [AIConversation] Skipping — a participant is suspended`);
       return;
     }
+    if (await userChatMuted(originalReceiverId)) {
+      console.log(`🤖 [AIConversation] Skipping — receiver ${originalReceiverId} is chat-muted`);
+      return;
+    }
 
     // Comfortability check (symmetric — covers both directions)
     const isComfortable = await checkProfileComfortability(originalSenderId, originalReceiverId);
@@ -696,6 +714,11 @@ export const runAiConversation = async (humanMessage) => {
       // Re-check: a ban mid-burst stops the exchange
       if (await eitherUserBanned(currentSenderId, currentReceiverId)) {
         console.log(`🤖 [AIConversation] A participant was suspended at round ${i + 1} — stopping`);
+        break;
+      }
+      // Re-check: a muted member's agent stops speaking for them
+      if (await userChatMuted(currentSenderId)) {
+        console.log(`🤖 [AIConversation] ${currentSenderId} is chat-muted at round ${i + 1} — stopping`);
         break;
       }
 
