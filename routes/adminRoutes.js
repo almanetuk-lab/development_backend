@@ -4,9 +4,9 @@ import { adminLogin, approveUser, deactivateUser, reactivateUser, getAllUserDeta
 import { verifyAdminToken } from "../middleware/verifyAdminToken.js";
 import { getAuditLogs } from "../controller/adminAuditController.js";
 import { clearAdminCookie } from "../utils/cookieHelper.js";
-import { getFlaggedMessages, getFlaggedCount, dismissFlag, warnFlag, deleteFlaggedMessage } from "../controller/adminModerationController.js";
+import { getFlaggedMessages, getFlaggedCount, dismissFlag, warnFlag, deleteFlaggedMessage, unmuteUser } from "../controller/adminModerationController.js";
 import { validate, validateQuery } from "../validations/validate.js";
-import { flagIdParamsSchema, listFlagsQuerySchema, reviewActionSchema } from "../validations/moderationSchemas.js";
+import { flagIdParamsSchema, listFlagsQuerySchema, reviewActionSchema, userIdParamsSchema, unmuteUserSchema } from "../validations/moderationSchemas.js";
 import { banUserSchema, reactivateUserSchema } from "../validations/adminSchemas.js";
 
 const router = express.Router();
@@ -31,6 +31,7 @@ router.get("/api/admin/flagged-messages/count", verifyAdminToken, getFlaggedCoun
 router.post("/api/admin/flagged-messages/:id/dismiss", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), dismissFlag); // Dismiss Flag
 router.post("/api/admin/flagged-messages/:id/warn", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), warnFlag); // Warn Sender
 router.delete("/api/admin/flagged-messages/:id", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), deleteFlaggedMessage); // Remove Flagged Message
+router.post("/api/admin/users/:id/unmute", verifyAdminToken, validate(userIdParamsSchema, "params"), validate(unmuteUserSchema), unmuteUser); // Lift Auto-Moderation Chat Mute
 
 // Admin logout — clears adminAccessToken cookie
 router.post("/api/admin/logout", (req, res) => {

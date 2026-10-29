@@ -6,6 +6,7 @@ import { sendNotification } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { setAdminCookie } from "../utils/cookieHelper.js";
 import { banUser, liftBan, getBanDetails } from "../services/accountBanService.js";
+import { getModerationDetails } from "../services/autoModerationService.js";
 dotenv.config();
 
 // ---------------- Admin Login ----------------
@@ -351,12 +352,15 @@ export const getAllUserDetails = async (req, res) => {
       });
     }
 
-    const { ban, ban_history } = await getBanDetails(id);
+    const [{ ban, ban_history }, moderation] = await Promise.all([
+      getBanDetails(id),
+      getModerationDetails(id),
+    ]);
 
     return res.status(200).json({
       status: "success",
       message: "User full details fetched successfully",
-      user: { ...rows[0], ban, ban_history },
+      user: { ...rows[0], ban, ban_history, moderation },
     });
 
   } catch (error) {

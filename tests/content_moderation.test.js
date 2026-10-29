@@ -13,6 +13,7 @@
 process.env.MODERATION_EXTRA_WORDS = "almanetbadword";
 process.env.MODERATION_ALLOWED_WORDS = "hell";
 process.env.ENABLE_CONTENT_MODERATION = "true";
+process.env.MODERATION_SEVERE_WORDS = "almanetsevereword";
 
 const { checkContent } = await import("../services/contentModerationService.js");
 
@@ -57,6 +58,61 @@ assert(r.matchedWords.includes("fuck"), "matchedWords is lowercased and punctuat
 
 r = checkContent("bitch bitch bitch");
 assertEqual(r.matchedWords.length, 1, "matchedWords is de-duplicated");
+
+// ─── Disguised spellings ──────────────────────────────────────────────────────
+section("Disguised spellings are flagged");
+for (const [text, word] of [
+  ["f*ck you", "fuck"],
+  ["sh1t happens", "shit"],
+  ["f u c k this", "fuck"],
+  ["f.u.c.k off", "fuck"],
+  ["fuuuuuck", "fuck"],
+  ["what a fück", "fuck"],
+  ["you b!tch", "bitch"],
+]) {
+  r = checkContent(text);
+  assertEqual(r.isFlagged, true, `"${text}" is flagged`);
+  assert(r.matchedWords.includes(word), `"${text}" matches "${word}"  [got: ${r.matchedWords.join(", ")}]`);
+}
+
+// ─── Severity tiers ───────────────────────────────────────────────────────────
+section("Severity tiers");
+assertEqual(checkContent("Hi there").severity, "none", "clean → none");
+assertEqual(checkContent("this is crap").severity, "mild", "crap → mild");
+assertEqual(checkContent("what the fuck").severity, "mild", "fuck → mild");
+assertEqual(checkContent("you stupid cunt").severity, "severe", "slur/sexual term → severe");
+assertEqual(checkContent("you are a whore").severity, "severe", "whore → severe");
+assertEqual(checkContent("bunch of sluts").severity, "severe", "plural of severe term → severe");
+assertEqual(checkContent("he raped").severity, "severe", "inflection of severe term → severe");
+assertEqual(checkContent("c*nt").severity, "severe", "masked severe word with one reading → severe");
+assertEqual(checkContent("s**t").severity, "mild", "masked word that could be mild → mild");
+assertEqual(checkContent("shit, you cunt").severity, "severe", "mixed tiers → severe wins");
+assertEqual(checkContent("you almanetsevereword").severity, "severe", "MODERATION_SEVERE_WORDS adds a severe word");
+
+// ─── Severe phrases ───────────────────────────────────────────────────────────
+section("Severe phrases");
+for (const text of ["just kill yourself", "Go  DIE!!", "I'll kill you", "i hope u die", "kys"]) {
+  r = checkContent(text);
+  assertEqual(r.severity, "severe", `"${text}" → severe`);
+}
+assertEqual(checkContent("this traffic will kill me").isFlagged, false, "everyday 'kill' is not flagged");
+assertEqual(checkContent("I could die laughing").isFlagged, false, "everyday 'die' is not flagged");
+
+// ─── No false positives ───────────────────────────────────────────────────────
+section("Common words are not flagged");
+for (const text of [
+  "I live near Scunthorpe",
+  "my class starts at 9",
+  "the assassin's creed",
+  "these spices are great",
+  "I passed the grape test",
+  "classic cocktail",
+  "1 2 3 go",
+  "email me at a@b.com",
+  "that costs $50",
+]) {
+  assertEqual(checkContent(text).isFlagged, false, `"${text}"`);
+}
 
 // ─── Empty / attachment-only ──────────────────────────────────────────────────
 section("Empty content is never flagged");

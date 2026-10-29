@@ -2,6 +2,8 @@ import { pool } from "../config/db.js";
 import { io, sendNotification } from "../server.js";
 import { logAuditEvent } from "../utils/auditLogger.js";
 import { buildListEnvelope } from "../utils/pagination.js";
+import { activeMuteSql, activeStrikeSql } from "../utils/moderationRules.js";
+import { getActiveMute, liftMute, notifyUnmuted } from "../services/autoModerationService.js";
 
 const REMOVED_CONTENT = "[Removed by moderator]";
 
@@ -86,7 +88,15 @@ export const getFlaggedMessages = async (req, res) => {
         (
           SELECT COUNT(*)::int FROM message_moderation_flags w
           WHERE w.sender_id = f.sender_id AND w.status = 'warned'
-        ) AS warning_count
+        ) AS warning_count,
+        (
+          SELECT COUNT(*)::int FROM message_moderation_flags st
+          WHERE st.sender_id = f.sender_id AND ${activeStrikeSql("st")}
+        ) AS active_strikes,
+        (
+          SELECT MAX(m.muted_until) FROM user_chat_mutes m
+          WHERE m.user_id = f.sender_id AND ${activeMuteSql("m")}
+        ) AS sender_muted_until
       FROM message_moderation_flags f
       LEFT JOIN profiles sp ON sp.user_id = f.sender_id
       LEFT JOIN profiles rp ON rp.user_id = f.receiver_id
@@ -139,12 +149,25 @@ export const dismissFlag = async (req, res) => {
       if (t.flag.message_id) {
         await client.query(`UPDATE messages SET is_flagged = FALSE WHERE id = $1`, [t.flag.message_id]);
       }
+      // A dismissed strike stops counting; lift the auto-mute it caused, if still running.
+      if (t.flag.is_strike) {
+        const { rows } = await client.query(
+          `SELECT id FROM user_chat_mutes m WHERE m.source_flag_id = $1 AND ${activeMuteSql("m")}`,
+          [t.flag.id],
+        );
+        for (const row of rows) {
+          t.liftedMute = await liftMute(row.id, { adminId: req.admin.id, reason: "flag_dismissed", note }, client);
+        }
+      }
       return t;
     });
     if (result.error) return res.status(result.error.code).json(result.error.body);
 
-    auditAdminAction(req, "MODERATION_DISMISS", { flag_id: result.flag.id, message_id: result.flag.message_id, target_user_id: result.flag.sender_id });
+    auditAdminAction(req, "MODERATION_DISMISS", { flag_id: result.flag.id, message_id: result.flag.message_id, target_user_id: result.flag.sender_id, lifted_mute_id: result.liftedMute?.id ?? null });
     emitResolved(result.flag);
+    if (result.liftedMute) {
+      notifyUnmuted(result.flag.sender_id).catch((err) => console.error("❌ Failed to notify unmute:", err.message));
+    }
 
     return res.status(200).json({ status: "success", message: "Alert dismissed", flag: result.flag });
   } catch (error) {
@@ -239,5 +262,30 @@ export const deleteFlaggedMessage = async (req, res) => {
   } catch (error) {
     console.error("Admin delete flagged message error:", error);
     return res.status(500).json({ status: "error", message: "Failed to remove message" });
+  }
+};
+
+// ---------------- Unmute User ----------------
+export const unmuteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const note = req.body?.note;
+
+    const mute = await getActiveMute(id);
+    if (!mute) {
+      return res.status(404).json({ status: "error", message: "This user is not muted." });
+    }
+    const lifted = await liftMute(mute.id, { adminId: req.admin.id, reason: "admin", note });
+    if (!lifted) {
+      return res.status(409).json({ status: "error", message: "This mute has already ended." });
+    }
+
+    auditAdminAction(req, "MODERATION_UNMUTE", { mute_id: lifted.id, target_user_id: lifted.user_id });
+    await notifyUnmuted(lifted.user_id);
+
+    return res.status(200).json({ status: "success", message: "User unmuted", mute: lifted });
+  } catch (error) {
+    console.error("Admin unmute user error:", error);
+    return res.status(500).json({ status: "error", message: "Failed to unmute user" });
   }
 };
