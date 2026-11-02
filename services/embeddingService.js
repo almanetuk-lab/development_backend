@@ -1,9 +1,7 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import dotenv from "dotenv";
+import { genAI, getGeminiEmbeddingModel } from "../config/geminiConfig.js";
 
-dotenv.config();
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Must match the vector(768) column and HNSW index on profiles.intent_embedding.
+const EMBEDDING_DIMENSIONS = 768;
 
 /**
  * Builds a rich, normalized semantic string from a user's full profile.
@@ -145,17 +143,24 @@ export const generateEmbedding = async (text) => {
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-embedding-2" });
+    const modelName = getGeminiEmbeddingModel();
+    const model = genAI.getGenerativeModel({ model: modelName });
 
-    console.log("🤖 Calling Gemini for text embedding...");
+    console.log(`🤖 Calling Gemini for text embedding (${modelName})...`);
     const result = await model.embedContent({
       content: { parts: [{ text }] },
-      outputDimensionality: 768,
+      outputDimensionality: EMBEDDING_DIMENSIONS,
     });
     const embedding = result.embedding.values;
 
     if (!embedding || !Array.isArray(embedding)) {
       console.error("❌ Invalid embedding format returned from Gemini.");
+      return null;
+    }
+
+    // A model that ignores outputDimensionality would fail the DB insert; keep the old vector instead.
+    if (embedding.length !== EMBEDDING_DIMENSIONS) {
+      console.error(`❌ Embedding model ${modelName} returned ${embedding.length} dimensions, expected ${EMBEDDING_DIMENSIONS}. Check GEMINI_EMBEDDING_MODEL.`);
       return null;
     }
 

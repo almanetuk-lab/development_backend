@@ -1,9 +1,8 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const extractJsonFromText = (text) => {
   const match = text.match(/```json\n([\s\S]*?)\n```/);
@@ -87,8 +86,6 @@ export const extractProfessionalEntities = async (profileData, prompts = null) =
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
     const prompt = `You are a Named Entity Recognition (NER) and Professional Normalization Engine.
 Your task is to analyze fragmented user professional data (job titles, bio text, work rhythms) and normalize it into standardized semantic clusters.
 
@@ -115,9 +112,7 @@ User Profile Context:
 Return the JSON object:`;
 
     console.log("🤖 Calling Gemini for NER professional entity extraction...");
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const rawText = response.text();
+    const { text: rawText } = await generateContentWithFallback(prompt, { label: "NER" });
 
     const jsonString = extractJsonFromText(rawText);
     if (!jsonString) {
