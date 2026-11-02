@@ -15,6 +15,14 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
  */
 export const uploadToSupabase = async (file, bucketName = "user_uploads") => {
   if (!file) return null;
+
+  // Catch the .env.example placeholders before they surface as an opaque "fetch failed".
+  if (!supabaseUrl || !/^https:\/\/[a-z0-9]+\.supabase\.co\/?$/.test(supabaseUrl) || supabaseUrl.includes("your-supabase")) {
+    throw new Error("SUPABASE_URL is missing or still a placeholder in the backend .env");
+  }
+  if (!supabaseKey || supabaseKey.startsWith("your_")) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) is missing or still a placeholder in the backend .env");
+  }
   
   // Create a unique file path
   const fileExt = file.originalname.split('.').pop() || 'png';
@@ -28,7 +36,8 @@ export const uploadToSupabase = async (file, bucketName = "user_uploads") => {
     });
 
   if (error) {
-    throw new Error(`Supabase upload failed: ${error.message}`);
+    const hint = error.message === "fetch failed" ? ` (could not reach ${supabaseUrl})` : "";
+    throw new Error(`Supabase upload failed: ${error.message}${hint}`);
   }
 
   // Retrieve public URL
