@@ -1,5 +1,5 @@
 import express from "express";
-import { uploadFile, getAllUsers, getMessagesForUser, getAllMessages, addReaction, getAllReactions,deleteMessage} from "../controller/chatController.js";
+import { uploadFile, getAllUsers, getMessagesForUser, getAllMessages, addReaction, getAllReactions,deleteMessage, getMuteStatus} from "../controller/chatController.js";
 import { getRecentChats } from "../controller/chatController.js";
 import upload from "../middleware/upload.js";
 import { validateAccessToken } from "../middleware/verfiytoken.js";
@@ -14,6 +14,7 @@ router.get("/api/chats/recent/:myUserId", validateAccessToken, checkFeatureGuard
 router.post("/api/chat/upload", validateAccessToken, checkFeatureGuard("message"), upload.single("file"), uploadFile);   //
 router.get("/api/users", validateAccessToken, getAllUsers); 
 router.get("/api/messages/:userId", validateAccessToken, checkFeatureGuard("message"), validate(getMessagesParamsSchema, "params"), getMessagesForUser); 
+router.get("/api/chat/mute-status", validateAccessToken, checkFeatureGuard("message"), getMuteStatus); // Auto-moderation mute state
 router.post("/api/messages", validateAccessToken, checkFeatureGuard("message"), validate(sendMessageSchema), getAllMessages); // 
 router.post("/api/reactions", validateAccessToken, checkFeatureGuard("message"), validate(addReactionSchema), addReaction);    //
 router.get("/api/reactions", validateAccessToken, checkFeatureGuard("message"), getAllReactions);        

@@ -339,6 +339,8 @@ import { trackMessageActivity } from "../services/trustService.js";
 import { runAiConversation } from "../services/aiAgentService.js";
 import { checkContent, recordFlag } from "../services/contentModerationService.js";
 import { bannedSql, RECIPIENT_UNAVAILABLE_CODE } from "../utils/banRules.js";
+import { mutedPayload } from "../utils/moderationRules.js";
+import { getActiveMute } from "../services/autoModerationService.js";
 
 const recipientUnavailable = (res) =>
   res.status(403).json({
@@ -347,6 +349,20 @@ const recipientUnavailable = (res) =>
   });
 
 dotenv.config();
+
+// ---------------- Mute Status ----------------
+export const getMuteStatus = async (req, res) => {
+  try {
+    const mute = await getActiveMute(req.user.id);
+    return res.status(200).json({
+      muted: !!mute,
+      muted_until: mute ? new Date(mute.muted_until).toISOString() : null,
+    });
+  } catch (error) {
+    console.error("Get mute status error:", error);
+    return res.status(500).json({ error: "Failed to fetch mute status" });
+  }
+};
 
 // ---------------- Health Check ----------------
 export const healthCheck = (req, res) => {
@@ -536,6 +552,12 @@ export const getAllMessages = async (req, res) => {
       return res.status(400).json({ error: "You cannot send messages to yourself." });
     }
 
+    // 🔇 Auto-moderation chat mute: the sender can read but not send
+    const activeMute = await getActiveMute(sender_id);
+    if (activeMute) {
+      return res.status(403).json(mutedPayload(activeMute));
+    }
+
     const receiverCheck = await pool.query(
       `SELECT id, ${bannedSql("users")} AS is_banned FROM users WHERE id = $1`,
       [receiver_id],
@@ -602,7 +624,7 @@ export const getAllMessages = async (req, res) => {
 
     const savedMessage = rows[0];
     if (moderation.isFlagged) {
-      recordFlag(savedMessage, moderation.matchedWords).catch((err) =>
+      recordFlag(savedMessage, moderation.matchedWords, moderation.severity).catch((err) =>
         console.error("❌ Failed to record moderation flag:", err.message),
       );
     }

@@ -37,3 +37,14 @@ export const reviewActionSchema = z
       .nullish(),
   })
   .default({});
+
+// ─── Unmute User Schemas ────────────────────────────────────────────────────
+
+export const userIdParamsSchema = z.object({
+  id: z.coerce
+    .number({ required_error: "id is required." })
+    .int()
+    .positive("id must be a positive integer."),
+});
+
+export const unmuteUserSchema = reviewActionSchema;
