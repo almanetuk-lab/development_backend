@@ -15,7 +15,7 @@
 
 import { pool } from "../config/db.js";
 import { notBannedSql } from "../utils/banRules.js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -405,9 +405,6 @@ export const applyGhostingPenalty = async (userId, partnerId, sessionId = null) 
     let insight = "User shows a pattern of disengaging after initial contact without follow-through.";
 
     try {
-      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
       const prompt = `You are an AI relationship behavioural analyst.
 
 A user on a dating/networking platform has not responded to a match for over 48 hours after a successful compatibility handshake.
@@ -417,8 +414,8 @@ Current Digital Twin state summary:
 
 In exactly 1 concise sentence (max 30 words), describe what this pattern of non-engagement reveals about their current communication readiness or availability. Do NOT be judgmental.`;
 
-      const result = await model.generateContent(prompt);
-      insight = result.response.text().trim();
+      const { text } = await generateContentWithFallback(prompt, { label: "Module 8" });
+      insight = text.trim();
       console.log(`[Module 8] Gemini auto-ghosting insight generated for user ${userId}`);
     } catch (geminiErr) {
       console.warn("[Module 8] Gemini auto-insight failed, using fallback:", geminiErr.message);

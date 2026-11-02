@@ -1,6 +1,6 @@
 import { pool } from "../config/db.js";
 import { notBannedSql } from "../utils/banRules.js";
-import { generateHandshake } from "../services/handshakeService.js";
+import { generateHandshake, AiUnavailableError } from "../services/handshakeService.js";
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 import {
   computeTrustStatus,
@@ -8,7 +8,7 @@ import {
   detectActiveGhostingAlert,
   applyGhostingPenalty,
 } from "../services/trustService.js";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 
 // ─── Formatting ────────────────────────────────────────────────────────────────
 
@@ -188,6 +188,10 @@ export const initiateHandshake = async (req, res) => {
     });
 
   } catch (error) {
+    if (error instanceof AiUnavailableError) {
+      if (error.retryAfterSeconds) res.set("Retry-After", String(error.retryAfterSeconds));
+      return res.status(503).json({ code: error.code, message: error.message });
+    }
     console.error("❌ Error initiating handshake controller:", error);
     return res.status(500).json({
       message: "Server error during handshake initiation",
@@ -348,9 +352,6 @@ export const ghostingRespond = async (req, res) => {
       let insight = `User opted not to engage. Custom reason: "${effectiveReason}".`;
 
       try {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
         const prompt = `You are an AI relationship behavioural analyst.
 
 A user on a dating/networking platform chose NOT to reply to a match.
@@ -361,8 +362,8 @@ Current Digital Twin state summary:
 
 In exactly 1 concise sentence (max 30 words), describe what this ghosting pattern reveals about their communication behaviour or readiness for connection. Do NOT be judgmental.`;
 
-        const result = await model.generateContent(prompt);
-        insight = result.response.text().trim();
+        const { text } = await generateContentWithFallback(prompt, { label: "Module 8" });
+        insight = text.trim();
         console.log(`[Module 8] Gemini ghosting insight generated for user ${userId}`);
       } catch (geminiErr) {
         console.warn("[Module 8] Gemini insight failed, using fallback reason:", geminiErr.message);

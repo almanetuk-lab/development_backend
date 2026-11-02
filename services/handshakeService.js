@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { getOrGenerateBurnoutCurve } from "./digitalTwinService.js";
@@ -6,9 +6,62 @@ import { awardHandshakePoints } from "./trustService.js";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// ─── Default states (used when Gemini is unavailable) ──────────────────────
+// ─── AI availability errors ────────────────────────────────────────────────
+
+/**
+ * Thrown when no Gemini model could produce a usable report. The controller
+ * maps it to a 503 so the client shows a clear message instead of a fake
+ * all-50% report being saved as "completed".
+ */
+export class AiUnavailableError extends Error {
+  constructor(code, message, retryAfterSeconds = null) {
+    super(message);
+    this.name = "AiUnavailableError";
+    this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+/** Sorts a Gemini SDK error into quota / auth / model / other. */
+const classifyGeminiError = (err) => {
+  const status = err?.status;
+  const msg = String(err?.message || "").toLowerCase();
+  if (status === 429 || msg.includes("quota") || msg.includes("resource_exhausted") || msg.includes("rate limit")) {
+    return "quota";
+  }
+  if (status === 401 || status === 403 || msg.includes("api key") || msg.includes("permission")) {
+    return "auth";
+  }
+  if (status === 404 || msg.includes("not found") || msg.includes("is not supported")) {
+    return "model";
+  }
+  return "other";
+};
+
+/** Builds the user-facing error once every model has failed. */
+const buildAiUnavailableError = (kinds) => {
+  if (kinds.includes("quota")) {
+    return new AiUnavailableError(
+      "AI_QUOTA_EXHAUSTED",
+      "Our AI service has reached its usage limit for now. Please try the compatibility report again later.",
+      3600
+    );
+  }
+  if (kinds.includes("auth")) {
+    return new AiUnavailableError(
+      "AI_MISCONFIGURED",
+      "The compatibility report is temporarily unavailable. Our team has been notified."
+    );
+  }
+  return new AiUnavailableError(
+    "AI_UNAVAILABLE",
+    "The compatibility report could not be generated right now. Please try again in a few minutes.",
+    60
+  );
+};
+
+// ─── Default states (filled in for fields Gemini omits) ────────────────────
 
 const DEFAULT_HANDSHAKE_STATE = {
   compatibility_markers: {
@@ -497,27 +550,30 @@ ${JSON.stringify(privacySafeTwinA, null, 2)}
 User B Digital Twin (Privacy-Safe — no PII):
 ${JSON.stringify(privacySafeTwinB, null, 2)}
 `;
-    const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
     let rawText = "";
     let callSucceeded = false;
+    let failureKinds = [];
 
-    for (const modelName of GEMINI_MODELS) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        rawText = response.text();
-        callSucceeded = true;
-        console.log(`✅ [Handshake Service] Gemini handshake successfully generated using ${modelName}`);
-        break;
-      } catch (apiErr) {
-        console.warn(`⚠️ [Handshake Service] Gemini model ${modelName} failed:`, apiErr.message);
-      }
+    try {
+      const { text, modelName } = await generateContentWithFallback(prompt, { label: "Handshake Service" });
+      rawText = text;
+      callSucceeded = true;
+      console.log(`✅ [Handshake Service] Gemini handshake successfully generated using ${modelName}`);
+    } catch (apiErr) {
+      // apiErr.errors holds one entry per model tried (primary, then fallback).
+      failureKinds = (apiErr.errors || [{ error: apiErr }]).map((f) => classifyGeminiError(f.error));
+    }
+
+    // Do not save a fake all-50% report or award trust points when the AI is down.
+    if (!callSucceeded) {
+      const aiError = buildAiUnavailableError(failureKinds);
+      console.error(`❌ [Handshake Service] All Gemini models failed [${failureKinds.join(", ")}] → ${aiError.code}`);
+      throw aiError;
     }
 
     // ── Step 5: Parse and validate Gemini response ──────────────────────────
-    let handshakeData = DEFAULT_HANDSHAKE_STATE;
-    const jsonString = callSucceeded ? extractJsonFromText(rawText) : null;
+    let handshakeData = null;
+    const jsonString = extractJsonFromText(rawText);
 
     if (jsonString) {
       try {
@@ -643,6 +699,15 @@ ${JSON.stringify(privacySafeTwinB, null, 2)}
       }
     } else {
       console.warn("⚠️ Could not extract valid JSON block from Gemini handshake response.");
+    }
+
+    // An unparseable answer is a failure too; saving defaults would show 50% everywhere.
+    if (!handshakeData) {
+      throw new AiUnavailableError(
+        "AI_BAD_RESPONSE",
+        "The compatibility report could not be generated right now. Please try again in a few minutes.",
+        60
+      );
     }
 
     // Module 7 — Fallback: always ensure audit_report is computed even on Gemini failure

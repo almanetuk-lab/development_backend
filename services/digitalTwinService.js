@@ -1,10 +1,9 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 /**
  * Default flat budrnout curvdde — used when no historical data is available.
@@ -125,23 +124,16 @@ INPUT DATA:
 ${contextStr}
 `;
 
-    const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
     let rawText = "";
     let callSucceeded = false;
 
-    for (const modelName of GEMINI_MODELS) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        console.log(`[DEBUG] Gemini Request Sent (${modelName})`);
-        const response = await result.response;
-        rawText = response.text();
-        callSucceeded = true;
-        console.log(`[DEBUG] Gemini Response Received from ${modelName}`);
-        break;
-      } catch (err) {
-        console.warn(`⚠️ [DigitalTwinService] Gemini model ${modelName} failed:`, err.message);
-      }
+    try {
+      const { text, modelName } = await generateContentWithFallback(prompt, { label: "DigitalTwinService" });
+      rawText = text;
+      callSucceeded = true;
+      console.log(`[DEBUG] Gemini Response Received from ${modelName}`);
+    } catch (err) {
+      console.warn("⚠️ [DigitalTwinService] All Gemini models failed:", err.message);
     }
 
     if (!callSucceeded || !rawText) {
@@ -284,18 +276,12 @@ PROFESSIONAL CONTEXT:
 ${JSON.stringify(contextSummary, null, 2)}
 `;
 
-    const GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-2.5-flash"];
     let rawText = "";
 
-    for (const modelName of GEMINI_MODELS) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        const result = await model.generateContent(prompt);
-        rawText = result.response.text();
-        if (rawText) break;
-      } catch (err) {
-        console.warn(`⚠️ [BurnoutCurve] Gemini model ${modelName} failed:`, err.message);
-      }
+    try {
+      ({ text: rawText } = await generateContentWithFallback(prompt, { label: "BurnoutCurve" }));
+    } catch (err) {
+      console.warn("⚠️ [BurnoutCurve] All Gemini models failed:", err.message);
     }
 
     const jsonString = rawText ? extractJsonFromText(rawText) : null;

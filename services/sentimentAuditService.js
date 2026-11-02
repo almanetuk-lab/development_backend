@@ -14,13 +14,12 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 import crypto from "crypto";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ── Configurable Scoring Weights ─────────────────────────────────────────────
 // These weights are used by the compatibility engine (matchController) and
@@ -469,8 +468,6 @@ export const analyzeSentimentAndTone = async (profileOrText, prompts = null) => 
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
     // ── Gemini Prompt ────────────────────────────────────────────────────────
     const prompt = `You are an AI Sentiment & Emotional Tone Analysis Engine for a professional relationship compatibility platform called Intentional Connection.
 
@@ -574,9 +571,7 @@ Return EXACTLY this JSON structure (no other text):
 }`;
 
     console.log("🧠 SENTIMENT_AUDIT: Calling Gemini for tone analysis...");
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const rawText = response.text();
+    const { text: rawText } = await generateContentWithFallback(prompt, { label: "SentimentAudit" });
     console.log("🧠 SENTIMENT_AUDIT: Gemini raw response length:", rawText.length);
 
     // ── Extract JSON block ───────────────────────────────────────────────────

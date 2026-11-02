@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { io } from "../server.js";
@@ -44,7 +44,6 @@ const AI_REPLY_DELAY_MS = 3000;       // 3s delay between AI messages for natura
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // ─────────────────────────────────────────────
 // Config helpers
@@ -285,9 +284,8 @@ Write a natural, concise reply (1–3 short sentences, ~500 chars max). Match th
 
     console.log(`🤖 [AIAgentService] Generating reply for user ${ownerUserId}...`);
 
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-    const result = await model.generateContent(prompt);
-    const replyText = result.response.text()?.trim();
+    const { text } = await generateContentWithFallback(prompt, { label: "AIAgentService" });
+    const replyText = text?.trim();
 
     if (!replyText) {
       console.warn(`⚠️ [AIAgentService] Empty reply from Gemini for user ${ownerUserId}`);
