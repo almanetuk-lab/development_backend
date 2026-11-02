@@ -1,10 +1,9 @@
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithFallback, getGeminiModelChain } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Allowed values for each field — used for validation and normalization
 export const ALLOWED_VALUES = {
@@ -261,8 +260,6 @@ export const extractIntentTags = async (profileOrAboutMe, prompts = null) => {
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
     const prompt = `You are an AI Intent Interpretation Engine for a professional compatibility platform called Intentional Connection.
 
 Analyze the user's profile details and return ONLY valid raw JSON. No markdown. No explanation. No extra text.
@@ -312,9 +309,7 @@ Return this exact JSON structure with no other text:
 }`;
 
     console.log("🤖 Calling Gemini for intent tags and confidence score...");
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const rawText = response.text();
+    const { text: rawText } = await generateContentWithFallback(prompt, { label: "IntentTags" });
     console.log("🤖 Gemini RAW Response:", rawText);
 
     // Extract JSON block from response
@@ -399,8 +394,6 @@ export const enrichContextualMetadata = async (profileOrAboutMe, prompts = null)
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
     const prompt = `You are an AI Contextual Metadata Enrichment Engine for a compatibility matching platform called Intentional Connection.
 
 Your task is to analyze the user's profile details, bio, location, profession, lifestyle rhythm, and Q&A prompts.
@@ -442,9 +435,7 @@ Return this exact JSON structure with no other text:
 }`;
 
     console.log("🤖 Calling Gemini for contextual metadata enrichment...");
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const rawText = response.text();
+    const { text: rawText } = await generateContentWithFallback(prompt, { label: "ContextualMetadata" });
     console.log("🤖 Gemini Contextual Enriched RAW Response:", rawText);
 
     const jsonString = extractJsonFromText(rawText);
@@ -549,8 +540,6 @@ export const generateAICompatibility = async (profileA, profileB, localScores = 
   console.log(`🧬 ─────────────────────────────────────────────────────────────`);
 
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-
     // ─── Format full profile details for AI contextualization ───────────────
     const formatProfileDetails = (p) => {
       const name = `${p.first_name || ""}`.trim() || p.username || "User";
@@ -815,12 +804,10 @@ JSON SCHEMA TO RETURN:
 `;
 
     console.log("🤖 Calling Gemini Matching Engine for psychological profiling...");
-    console.log(`🤖 Gemini model: gemini-3.6-flash`);
+    console.log(`🤖 Gemini models: ${getGeminiModelChain().join(" → ")}`);
     console.log(`🤖 Gemini Prompt length: ${prompt.length} chars`);
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const rawText = response.text();
+    const { text: rawText } = await generateContentWithFallback(prompt, { label: "MatchingEngine" });
     console.log("🤖 Gemini matching response size:", rawText.length, "chars");
 
     const jsonString = extractJsonFromText(rawText);
