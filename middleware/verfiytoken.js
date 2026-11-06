@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { getActiveBan, suspendedResponse } from "../services/accountBanService.js";
+import { deletedResponse, getDeletionState } from "../services/accountDeletionService.js";
 
 dotenv.config();
 export const validateAccessToken = async (req, res, next) => {
@@ -61,6 +62,8 @@ export const validateRefreshToken = async (req, res) => {
     try {
       const ban = await getActiveBan(decoded.id);
       if (ban) return suspendedResponse(res, ban);
+      // 🚫 Nor for a deleted one
+      if (await getDeletionState(decoded.id)) return deletedResponse(res);
     } catch (banErr) {
       console.error("❌ Ban check failed during refresh:", banErr.message);
     }

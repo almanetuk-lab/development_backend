@@ -6,7 +6,7 @@ import { logAuditEvent } from "../utils/auditLogger.js";
 import { generateAndCacheCompatibility } from "../controller/matchController.js";
 import { createNotification } from "../controller/notificationController.js";
 import { checkContent, recordFlag } from "./contentModerationService.js";
-import { bannedSql } from "../utils/banRules.js";
+import { unavailableSql } from "../utils/banRules.js";
 import { activeMuteSql } from "../utils/moderationRules.js";
 
 
@@ -14,7 +14,7 @@ import { activeMuteSql } from "../utils/moderationRules.js";
 // and nobody's agent replies to them.
 const eitherUserBanned = async (userIdA, userIdB) => {
   const { rows } = await pool.query(
-    `SELECT 1 FROM users u WHERE u.id = ANY($1::int[]) AND ${bannedSql("u")} LIMIT 1`,
+    `SELECT 1 FROM users u WHERE u.id = ANY($1::int[]) AND ${unavailableSql("u")} LIMIT 1`,
     [[userIdA, userIdB]]
   );
   return rows.length > 0;

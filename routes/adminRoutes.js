@@ -8,6 +8,8 @@ import { getFlaggedMessages, getFlaggedCount, dismissFlag, warnFlag, deleteFlagg
 import { validate, validateQuery } from "../validations/validate.js";
 import { flagIdParamsSchema, listFlagsQuerySchema, reviewActionSchema, userIdParamsSchema, unmuteUserSchema } from "../validations/moderationSchemas.js";
 import { banUserSchema, reactivateUserSchema } from "../validations/adminSchemas.js";
+import { adminUserIdParamsSchema, eraseAccountSchema } from "../validations/accountDeletionSchemas.js";
+import { eraseDeletedAccount, getPendingErasure, restoreDeletedAccountByAdmin } from "../controller/adminAccountDeletionController.js";
 
 const router = express.Router();
 
@@ -32,6 +34,11 @@ router.post("/api/admin/flagged-messages/:id/dismiss", verifyAdminToken, validat
 router.post("/api/admin/flagged-messages/:id/warn", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), warnFlag); // Warn Sender
 router.delete("/api/admin/flagged-messages/:id", verifyAdminToken, validate(flagIdParamsSchema, "params"), validate(reviewActionSchema), deleteFlaggedMessage); // Remove Flagged Message
 router.post("/api/admin/users/:id/unmute", verifyAdminToken, validate(userIdParamsSchema, "params"), validate(unmuteUserSchema), unmuteUser); // Lift Auto-Moderation Chat Mute
+
+// Account deletion — physical erasure only happens here
+router.get("/api/admin/deleted-accounts", verifyAdminToken, getPendingErasure); // Pending Erasure Queue
+router.post("/api/admin/users/:id/restore-deletion", verifyAdminToken, validate(adminUserIdParamsSchema, "params"), restoreDeletedAccountByAdmin); // Restore Deleted Account
+router.post("/api/admin/users/:id/erase", verifyAdminToken, validate(adminUserIdParamsSchema, "params"), validate(eraseAccountSchema), eraseDeletedAccount); // Erase Permanently
 
 // Admin logout — clears adminAccessToken cookie
 router.post("/api/admin/logout", (req, res) => {

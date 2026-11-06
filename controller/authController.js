@@ -8,6 +8,7 @@ import { sendNotification } from "../server.js";
 import { sendEmail } from "../services/sendEmail.js";
 import { setAuthCookies } from "../utils/cookieHelper.js";
 import { getActiveBan, suspendedResponse } from "../services/accountBanService.js";
+import { findRestorableByEmail, isSignupBlocked, restorableResponse } from "../services/accountDeletionService.js";
 
 //import { sendEmail } from "../emailService.js";
 
@@ -134,6 +135,12 @@ export const registerUser = async (req, res) => {
       [email]
     );
     if (existingUser.rows.length > 0) {
+      // A deleted account with this email → offer restore / start fresh
+      const deleted = await findRestorableByEmail(email);
+      if (deleted) return restorableResponse(res, deleted);
+      return res.status(400).json({ error: "User already exists." });
+    }
+    if (await isSignupBlocked(email)) {
       return res.status(400).json({ error: "User already exists." });
     }
     //
@@ -342,6 +349,10 @@ export async function loginUser(req, res) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
+    // Deleted accounts (correct password only) get the restore / start fresh choice
+    const deleted = await findRestorableByEmail(user.email);
+    if (deleted) return restorableResponse(res, deleted, { revealEmail: true });
+
     // 🚫 Banned accounts get the suspension details instead of a session
     const ban = await getActiveBan(user.id);
     if (ban) return suspendedResponse(res, ban);
@@ -404,6 +415,10 @@ export const forgotPassword = async (req, res) => {
     ]);
     if (!user.rows.length) {
       return res.status(404).json({ error: "User not found" });
+    }
+    // No reset link for a deleted account; it is recovered with an emailed code instead
+    if (user.rows[0].deleted_at) {
+      return restorableResponse(res, user.rows[0]);
     }
 
     const token = jwt.sign({ email }, process.env.JWT_SECRET, {

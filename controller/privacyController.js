@@ -1,7 +1,12 @@
 import { pool } from "../config/db.js";
-
-import { deleteFromSupabase } from "../utils/supabaseUpload.js";
 import bcrypt from "bcrypt";
+import { clearAuthCookies } from "../utils/cookieHelper.js";
+import {
+  AccountDeletionError,
+  sendVerificationCode,
+  softDeleteAccount,
+  verifyCode,
+} from "../services/accountDeletionService.js";
 
 // helper to log audit events
 const logAuditEvent = async (userId, action, details, req) => {
@@ -16,6 +21,18 @@ const logAuditEvent = async (userId, action, details, req) => {
   } catch (err) {
     console.error("❌ Error writing security audit log:", err.message);
   }
+};
+
+// Accounts created through Google/LinkedIn have a random placeholder password
+// the user never knew, so they confirm with an emailed code instead.
+const usesEmailCode = (authProvider) => authProvider === "google" || authProvider === "linkedin";
+
+const sendDeletionError = (res, error, fallback) => {
+  if (error instanceof AccountDeletionError) {
+    return res.status(error.status).json({ error: error.message });
+  }
+  console.error(`❌ ${fallback}:`, error);
+  return res.status(500).json({ error: `${fallback}. Please try again later.` });
 };
 
 /**
@@ -103,73 +120,86 @@ export const exportUserData = async (req, res) => {
 };
 
 /**
- * GDPR Right to Erasure: Permanent Account Deletion.
+ * Tells the settings page how this account confirms deletion: "password" or "code".
  */
-export const deleteAccountPermanently = async (req, res) => {
+export const getDeletionMethod = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { password } = req.body;
-
-    if (!password) {
-      return res.status(400).json({ error: "Password verification is required to delete your account." });
-    }
-
-    // 1. Fetch user credentials
-    const userRes = await pool.query(
-      "SELECT password FROM users WHERE id = $1",
-      [userId]
-    );
-    if (userRes.rows.length === 0) {
+    const { rows } = await pool.query("SELECT auth_provider FROM users WHERE id = $1", [req.user.id]);
+    if (!rows[0]) {
       return res.status(404).json({ error: "User account not found." });
     }
-    const user = userRes.rows[0];
+    return res.status(200).json({ method: usesEmailCode(rows[0].auth_provider) ? "code" : "password" });
+  } catch (error) {
+    return sendDeletionError(res, error, "Failed to load deletion settings");
+  }
+};
 
-    // 2. Validate password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: "Incorrect password. Deletion aborted." });
-    }
-
-    console.log(`🧹 Starting erasure workflow for user ${userId}...`);
-
-    // 3. Collect media references to delete from Supabase storage
-    // Fetch profile picture
-    const profilePicRes = await pool.query(
-      "SELECT image_url FROM profiles WHERE user_id = $1",
+/**
+ * Emails a deletion confirmation code. Only for Google/LinkedIn accounts.
+ */
+export const requestDeletionCode = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { rows } = await pool.query(
+      "SELECT email, auth_provider FROM users WHERE id = $1 AND deleted_at IS NULL",
       [userId]
     );
-    const profilePic = profilePicRes.rows[0]?.image_url;
-    if (profilePic) {
-      await deleteFromSupabase(profilePic, "user_uploads");
+    const user = rows[0];
+    if (!user) {
+      return res.status(404).json({ error: "User account not found." });
+    }
+    if (!usesEmailCode(user.auth_provider)) {
+      return res.status(400).json({ error: "Please confirm with your password instead." });
     }
 
-    // Fetch message attachments
-    const attachmentsRes = await pool.query(
-      "SELECT attachment_url FROM messages WHERE sender_id = $1 AND attachment_url IS NOT NULL",
+    await sendVerificationCode(userId, user.email, "delete");
+    return res.status(200).json({ message: "We've emailed you a 6-digit code." });
+  } catch (error) {
+    return sendDeletionError(res, error, "Failed to send the code");
+  }
+};
+
+/**
+ * Account deletion: marks the account deleted (soft delete). Nothing is erased
+ * here — an admin erases deleted accounts from the admin panel.
+ */
+export const deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { password, code } = req.body;
+
+    const { rows } = await pool.query(
+      "SELECT password, auth_provider FROM users WHERE id = $1 AND deleted_at IS NULL",
       [userId]
     );
-    for (const row of attachmentsRes.rows) {
-      if (row.attachment_url) {
-        await deleteFromSupabase(row.attachment_url, "user_uploads");
+    const user = rows[0];
+    if (!user) {
+      return res.status(404).json({ error: "User account not found." });
+    }
+
+    if (usesEmailCode(user.auth_provider)) {
+      if (!code) {
+        return res.status(400).json({ error: "Enter the code we emailed you." });
+      }
+      await verifyCode(userId, "delete", code);
+    } else {
+      if (!password) {
+        return res.status(400).json({ error: "Password verification is required to delete your account." });
+      }
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) {
+        return res.status(401).json({ error: "Incorrect password. Deletion aborted." });
       }
     }
 
-    // 4. (Vector data deleted automatically via DB cascade when user row is removed)
-
-    // 5. Log audit event before deletion (User ID is referenced, will set to NULL on delete)
-    await logAuditEvent(userId, "ACCOUNT_ERASURE", `Permanent account deletion executed for user ID: ${userId}`, req);
-
-    // 6. Delete user from relational database (Cascades will clear profiles, messages, twins, etc.)
-    await pool.query("DELETE FROM users WHERE id = $1", [userId]);
-
-    console.log(`✅ Erasure workflow completed successfully for user ${userId}.`);
+    await softDeleteAccount(userId, req);
+    clearAuthCookies(res);
 
     return res.status(200).json({
-      message: "Your account and all associated personal data have been permanently deleted in accordance with UK GDPR."
+      message: "Your account has been deleted. Sign up or log in with the same email to restore it.",
     });
   } catch (error) {
-    console.error("❌ GDPR Deletion error:", error);
-    return res.status(500).json({ error: "Failed to delete account. Please try again later." });
+    return sendDeletionError(res, error, "Failed to delete account");
   }
 };
 
