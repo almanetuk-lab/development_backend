@@ -1,7 +1,7 @@
 // db.js
 import pkg from "pg";
 import dotenv from "dotenv";
-import { bannedSql } from "../utils/banRules.js";
+import { DELETED_USER_NAME, deletedSql, unavailableSql } from "../utils/banRules.js";
 
 
 dotenv.config();
@@ -165,6 +165,27 @@ export const testConnection = async () => {
     `);
     console.log("🛡️ security_audit_logs table and indexes verified.");
 
+    // Module 8: one row per ghosting alert, keyed by the unanswered message.
+    // Makes the penalty apply once per alert and keeps answered/dismissed
+    // alerts from reappearing. message_at matches messages.created_at's type
+    // (timestamp without time zone) so comparisons are exact.
+    console.log("👻 Verifying ghosting_alerts table...");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ghosting_alerts (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        partner_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        message_at TIMESTAMP NOT NULL,
+        penalty_applied BOOLEAN NOT NULL DEFAULT false,
+        resolution VARCHAR(20) DEFAULT NULL,
+        reason TEXT DEFAULT NULL,
+        resolved_at TIMESTAMPTZ DEFAULT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE (user_id, partner_id, message_at)
+      );
+    `);
+    console.log("👻 ghosting_alerts table verified.");
+
     // Dynamic table initialization for contact_messages
     console.log("📬 Verifying contact_messages table...");
     await pool.query(`
@@ -189,6 +210,62 @@ export const testConnection = async () => {
       );
     `);
     console.log("📰 newsletter_subscriptions table verified.");
+
+    // Soft account deletion: a deleted account keeps its row until an admin
+    // erases it. The payments FK change is NOT here — see
+    // migrations/repoint_payments_fk_to_users.sql (manual).
+    console.log("🗑️ Verifying account deletion schema...");
+    await pool.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS erase_due_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS purged_at TIMESTAMPTZ,
+        ADD COLUMN IF NOT EXISTS purged_by INT,
+        ADD COLUMN IF NOT EXISTS deleted_was_banned BOOLEAN NOT NULL DEFAULT FALSE;
+      CREATE INDEX IF NOT EXISTS idx_users_pending_erase ON users (erase_due_at)
+        WHERE deleted_at IS NOT NULL AND purged_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS account_verification_codes (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        purpose VARCHAR(20) NOT NULL,
+        code_hash TEXT NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        attempts INT NOT NULL DEFAULT 0,
+        consumed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_account_codes_user ON account_verification_codes (user_id, purpose, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS blocked_signup_emails (
+        email_hash TEXT PRIMARY KEY,
+        reason VARCHAR(50) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- Anonymous: no user id, month-level dates, coarse values only
+      CREATE TABLE IF NOT EXISTS deletion_stats (
+        id SERIAL PRIMARY KEY,
+        gender VARCHAR(50),
+        age_band VARCHAR(10),
+        country VARCHAR(100),
+        plan_name VARCHAR(100),
+        signup_month DATE,
+        deletion_month DATE,
+        tenure_band VARCHAR(20),
+        messages_band VARCHAR(20),
+        handshakes_band VARCHAR(20)
+      );
+      CREATE TABLE IF NOT EXISTS deletion_stats_monthly (
+        month DATE NOT NULL,
+        attribute VARCHAR(50) NOT NULL,
+        value VARCHAR(100) NOT NULL,
+        count INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (month, attribute, value)
+      );
+    `);
+    console.log("🗑️ Account deletion schema verified.");
   } catch (err) {
     console.error("❌ Database connection error:", err.message);
   }
@@ -204,7 +281,7 @@ export const searchUsers = async (searchTerm) => {
       last_seen
     FROM users u
     WHERE email ILIKE $1
-      AND NOT ${bannedSql("u")}
+      AND NOT ${unavailableSql("u")}
     ORDER BY email
     LIMIT 50;
   `;
@@ -307,12 +384,14 @@ export const getRecentChats = async (myUserId) => {
 
     SELECT 
       u.id AS user_id,
-      INITCAP(SPLIT_PART(u.email, '@', 1)) AS name,
-      u.email,
-      u.last_seen AS last_seen,
-      p.image_url AS profile_picture_url,
-      -- Conversations with suspended members stay listed but are read-only
-      NOT ${bannedSql("u")} AS is_available,
+      -- Deleted members show as a placeholder: no name, email, photo or presence
+      CASE WHEN ${deletedSql("u")} THEN '${DELETED_USER_NAME}' ELSE INITCAP(SPLIT_PART(u.email, '@', 1)) END AS name,
+      CASE WHEN ${deletedSql("u")} THEN NULL ELSE u.email END AS email,
+      CASE WHEN ${deletedSql("u")} THEN NULL ELSE u.last_seen END AS last_seen,
+      CASE WHEN ${deletedSql("u")} THEN NULL ELSE p.image_url END AS profile_picture_url,
+      ${deletedSql("u")} AS partner_deleted,
+      -- Conversations with suspended or deleted members stay listed but are read-only
+      NOT ${unavailableSql("u")} AS is_available,
 
       lm.content AS last_message,
       lm.created_at AS last_message_time,

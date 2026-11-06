@@ -46,6 +46,7 @@ import planRoutes from "./routes/planRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
 import adminReportRoutes from "./routes/adminreportRoutes.js";
 import privacyRoutes from "./routes/privacyRoutes.js";
+import accountRecoveryRoutes from "./routes/accountRecoveryRoutes.js";
 //import { create } from "domain";
 
 import linkedinRoutes from './routes/linkedinRoutes.js';
@@ -57,7 +58,8 @@ import handshakeRoutes from "./routes/handshakeRoutes.js";
 import aiAgentRoutes from "./routes/aiAgentRoutes.js";
 import { verifySentimentSchema } from "./utils/schemaValidator.js";
 import { getActiveBan, liftExpiredBans } from "./services/accountBanService.js";
-import { suspensionPayload } from "./utils/banRules.js";
+import { ACCOUNT_DELETED_CODE, suspensionPayload } from "./utils/banRules.js";
+import { getDeletionState } from "./services/accountDeletionService.js";
 dotenv.config();
 
 const app = express();
@@ -187,6 +189,7 @@ app.use("/api/register", authRateLimiter);
 app.use("/api/login", authRateLimiter);
 app.use("/api/forgotpassword", authRateLimiter);
 app.use("/api/reset-password", authRateLimiter);
+app.use("/api/account", authRateLimiter); // deleted-account restore / start fresh
 app.use("/payments/create-checkout-session", paymentRateLimiter);
 
 // Protect ALL other server endpoints globally against DDoS attacks
@@ -252,6 +255,11 @@ io.on("connection", (socket) => {
       const ban = await getActiveBan(userId);
       if (ban) {
         socket.emit("account_suspended", suspensionPayload(ban));
+        return socket.disconnect(true);
+      }
+      // Deleted accounts don't come back online either
+      if (await getDeletionState(userId)) {
+        socket.emit("account_deleted", { code: ACCOUNT_DELETED_CODE });
         return socket.disconnect(true);
       }
     } catch (e) {
@@ -362,6 +370,7 @@ app.use("/payments", paymentRoutes);
 app.use("/api", uploadRoutes);
 app.use("/", chatRoutes); // new chat routes
 app.use("/", privacyRoutes); // GDPR Privacy & Data routes
+app.use("/", accountRecoveryRoutes); // Deleted-account restore / start fresh
 
 //Configuration Routes:-
 app.use("/api/admin/configurations", configRoutes);

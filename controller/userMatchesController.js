@@ -1,5 +1,5 @@
  import { pool } from "../config/db.js";
-import { notBannedSql } from "../utils/banRules.js";
+import { notUnavailableSql } from "../utils/banRules.js";
 
 /* ---------- Helpers ---------- */
 
@@ -71,7 +71,7 @@ export const getUserMatches = async (req, res) => {
         // 3️⃣ Fetch all other active profiles
         const allUsersResult = await pool.query(
             `SELECT * FROM profiles
-             WHERE user_id != $1 AND is_active = true AND ${notBannedSql("profiles.user_id")}`,
+             WHERE user_id != $1 AND is_active = true AND ${notUnavailableSql("profiles.user_id")}`,
              [userId]
         );
 
