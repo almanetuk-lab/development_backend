@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import { pool } from "../config/db.js";
 import { setAuthCookies } from "../utils/cookieHelper.js";
 import { getActiveBan, suspendedResponse } from "../services/accountBanService.js";
+import { findRestorableByEmail, isSignupBlocked, restorableResponse } from "../services/accountDeletionService.js";
 
 dotenv.config();
 
@@ -73,6 +74,10 @@ export const googleAuth = async (req, res) => {
 
     let user;
 
+    if (existingUser.rows.length === 0 && (await isSignupBlocked(email))) {
+      return res.status(403).json({ error: "This email can't be used to create an account." });
+    }
+
     if (existingUser.rows.length === 0) {
       // 🔹 New user via Google - mirror registerUser's approval logic
       const configResult = await pool.query(
@@ -109,6 +114,10 @@ export const googleAuth = async (req, res) => {
       );
     } else {
       user = existingUser.rows[0];
+
+      // Deleted account → restore / start fresh choice instead of a session
+      const deleted = await findRestorableByEmail(user.email);
+      if (deleted) return restorableResponse(res, deleted, { revealEmail: true });
 
       // 🚫 Banned accounts get the suspension details instead of a session
       const ban = await getActiveBan(user.id);

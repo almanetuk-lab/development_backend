@@ -206,6 +206,9 @@ export const getAllUsers = async (req, res) => {
         u.password,
         u.status,
         u.banned_until,
+        u.deleted_at,
+        u.erase_due_at,
+        u.purged_at,
         u.created_at,
         u.updated_at,
         p.first_name,
@@ -228,6 +231,9 @@ export const getAllUsers = async (req, res) => {
       profession: user.profession || null,
       status: user.status, // ✅ DIRECT FROM DB
       banned_until: user.banned_until,
+      deleted_at: user.deleted_at,
+      erase_due_at: user.erase_due_at,
+      purged_at: user.purged_at,
       createdAt: user.created_at,
       updatedAt: user.updated_at,
     }));

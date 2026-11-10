@@ -338,7 +338,7 @@ import { createNotification } from "./notificationController.js";
 import { trackMessageActivity } from "../services/trustService.js";
 import { runAiConversation } from "../services/aiAgentService.js";
 import { checkContent, recordFlag } from "../services/contentModerationService.js";
-import { bannedSql, RECIPIENT_UNAVAILABLE_CODE } from "../utils/banRules.js";
+import { unavailableSql, RECIPIENT_UNAVAILABLE_CODE } from "../utils/banRules.js";
 import { mutedPayload } from "../utils/moderationRules.js";
 import { getActiveMute } from "../services/autoModerationService.js";
 
@@ -474,10 +474,16 @@ export const getMessagesForUser = async (req, res) => {
         m.is_read,
         m.is_ai_generated,
 
-        sender_profile.image_url   AS sender_profile_image_url,
-        receiver_profile.image_url AS receiver_profile_image_url
+        CASE WHEN sender_user.deleted_at IS NOT NULL THEN NULL ELSE sender_profile.image_url END
+          AS sender_profile_image_url,
+        CASE WHEN receiver_user.deleted_at IS NOT NULL THEN NULL ELSE receiver_profile.image_url END
+          AS receiver_profile_image_url,
+        (sender_user.deleted_at IS NOT NULL OR receiver_user.deleted_at IS NOT NULL) AS partner_deleted
 
       FROM messages m
+
+      JOIN users sender_user ON sender_user.id = m.sender_id
+      JOIN users receiver_user ON receiver_user.id = m.receiver_id
 
       LEFT JOIN profiles sender_profile
         ON sender_profile.user_id = m.sender_id
@@ -559,14 +565,14 @@ export const getAllMessages = async (req, res) => {
     }
 
     const receiverCheck = await pool.query(
-      `SELECT id, ${bannedSql("users")} AS is_banned FROM users WHERE id = $1`,
+      `SELECT id, ${unavailableSql("users")} AS is_unavailable FROM users WHERE id = $1`,
       [receiver_id],
     );
     if (receiverCheck.rowCount === 0) {
       return res.status(404).json({ error: "Recipient user does not exist." });
     }
     // Chats with suspended members are read-only
-    if (receiverCheck.rows[0].is_banned) {
+    if (receiverCheck.rows[0].is_unavailable) {
       return recipientUnavailable(res);
     }
 
@@ -711,10 +717,10 @@ export const addReaction = async (req, res) => {
       message.sender_id === user_id ? message.receiver_id : message.sender_id;
 
     const partnerCheck = await pool.query(
-      `SELECT ${bannedSql("users")} AS is_banned FROM users WHERE id = $1`,
+      `SELECT ${unavailableSql("users")} AS is_unavailable FROM users WHERE id = $1`,
       [reactionReceiverId],
     );
-    if (partnerCheck.rows[0]?.is_banned) {
+    if (partnerCheck.rows[0]?.is_unavailable) {
       return recipientUnavailable(res);
     }
 

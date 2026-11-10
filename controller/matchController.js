@@ -1,5 +1,5 @@
 import { pool } from "../config/db.js";
-import { notBannedSql } from "../utils/banRules.js";
+import { notUnavailableSql } from "../utils/banRules.js";
 import { generateAICompatibility, extractIntentTags, enrichContextualMetadata, validateAndNormalize, validateAndNormalizeContextual } from "../services/geminiService.js";
 import { buildSemanticProfileText, generateEmbedding } from "../services/embeddingService.js";
 import { extractProfessionalEntities } from "../services/entityRecognitionService.js";
@@ -28,7 +28,7 @@ import {
 const fetchFullProfile = async (userId) => {
   try {
     const profileResult = await pool.query(
-      `SELECT * FROM profiles WHERE user_id = $1 AND ${notBannedSql("profiles.user_id")}`,
+      `SELECT * FROM profiles WHERE user_id = $1 AND ${notUnavailableSql("profiles.user_id")}`,
       [userId]
     );
 
@@ -565,7 +565,7 @@ export const getSuggestions = async (req, res) => {
           user_id != $2
           AND intent_embedding IS NOT NULL
           AND (intent_embedding <=> $1) < 0.30
-          AND ${notBannedSql("profiles.user_id")}
+          AND ${notUnavailableSql("profiles.user_id")}
       ORDER BY distance ASC
       LIMIT 50;
     `;
@@ -870,7 +870,7 @@ export const getCompatibilityReport = async (req, res) => {
 
     // Suspended members are hidden — don't serve even a cached report
     const targetCheck = await pool.query(
-      `SELECT 1 FROM users WHERE id = $1 AND ${notBannedSql("users.id")}`,
+      `SELECT 1 FROM users WHERE id = $1 AND ${notUnavailableSql("users.id")}`,
       [targetUserId]
     );
     if (!targetCheck.rows.length) {
@@ -1496,7 +1496,7 @@ export const getSentimentAudit = async (req, res) => {
     
     const result = await pool.query(
       `SELECT sentiment_audit
-       FROM profiles WHERE user_id = $1 AND ${notBannedSql("profiles.user_id")}`,
+       FROM profiles WHERE user_id = $1 AND ${notUnavailableSql("profiles.user_id")}`,
       [targetUserId]
     );
 
