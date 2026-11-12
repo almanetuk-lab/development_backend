@@ -7,6 +7,7 @@ const { Pool } = pkg;
 import dotenv from 'dotenv';
 import { setAuthCookies } from '../utils/cookieHelper.js';
 import { getActiveBan, suspendedResponse } from '../services/accountBanService.js';
+import { findRestorableByEmail, isSignupBlocked, restorableResponse } from '../services/accountDeletionService.js';
 
 dotenv.config();
 
@@ -72,6 +73,10 @@ class LinkedInAuthController {
             let userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
             let user;
 
+            if (userResult.rows.length === 0 && (await isSignupBlocked(email))) {
+                return res.status(403).json({ success: false, message: "This email can't be used to create an account." });
+            }
+
             if (userResult.rows.length === 0) {
                 console.log('📝 Creating new user from LinkedIn...');
 
@@ -110,6 +115,10 @@ class LinkedInAuthController {
                     ]
                 );
             } else {
+                // Deleted account → restore / start fresh choice instead of a session
+                const deleted = await findRestorableByEmail(email);
+                if (deleted) return restorableResponse(res, deleted, { revealEmail: true });
+
                 // 🚫 Banned accounts get the suspension details instead of a session
                 const ban = await getActiveBan(userResult.rows[0].id);
                 if (ban) return suspendedResponse(res, ban);

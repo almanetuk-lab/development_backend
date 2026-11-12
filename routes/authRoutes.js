@@ -1,4 +1,5 @@
 import express from "express";
+import { deletedResponse, getDeletionState } from "../services/accountDeletionService.js";
 import { forgotPassword, loginUser, registerUser, resetPassword, changePassword, sendContactMessage, subscribeNewsletter } from "../controller/authController.js";
 import { validateRefreshToken, validateAccessToken } from "../middleware/verfiytoken.js";
 import { clearAuthCookies } from "../utils/cookieHelper.js";
@@ -23,7 +24,14 @@ router.post("/api/logout", (req, res) => {
 });
 
 // Auth Check — lightweight endpoint for frontend to verify if user is authenticated
-router.get("/api/auth/check", validateAccessToken, (req, res) => {
+router.get("/api/auth/check", validateAccessToken, async (req, res) => {
+  // The JWT alone can outlive the account: a deleted account must not count as
+  // logged in, or the app bounces between /login and /dashboard forever
+  try {
+    if (await getDeletionState(req.user.id)) return deletedResponse(res);
+  } catch (err) {
+    console.error("❌ Deletion check failed during auth check:", err.message);
+  }
   res.json({
     authenticated: true,
     user: {

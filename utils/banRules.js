@@ -22,6 +22,24 @@ export const bannedSql = (alias = "u") =>
 export const notBannedSql = (userIdExpr) =>
   `NOT EXISTS (SELECT 1 FROM users bu WHERE bu.id = ${userIdExpr} AND ${bannedSql("bu")})`;
 
+// ─── Soft-deleted accounts ───────────────────────────────────────────────────
+// A deleted account keeps its row (deleted_at set) until an admin erases it.
+// "Unavailable" = banned OR deleted: hidden from discovery, can't be messaged.
+
+export const ACCOUNT_DELETED_CODE = "ACCOUNT_DELETED";
+export const ACCOUNT_DELETED_RESTORABLE_CODE = "ACCOUNT_DELETED_RESTORABLE";
+export const DELETED_USER_NAME = "Deleted user";
+
+/** SQL condition that is TRUE when the users row aliased `alias` is soft-deleted. */
+export const deletedSql = (alias = "u") => `(${alias}.deleted_at IS NOT NULL)`;
+
+/** SQL condition that is TRUE when the users row aliased `alias` is banned or deleted. */
+export const unavailableSql = (alias = "u") => `(${bannedSql(alias)} OR ${deletedSql(alias)})`;
+
+/** SQL condition that is TRUE when the user id expression belongs to an available user. */
+export const notUnavailableSql = (userIdExpr) =>
+  `NOT EXISTS (SELECT 1 FROM users bu WHERE bu.id = ${userIdExpr} AND ${unavailableSql("bu")})`;
+
 /** JS mirror of bannedSql for a row with { status, banned_until }. */
 export const isBanActive = (row, now = new Date()) =>
   !!row &&

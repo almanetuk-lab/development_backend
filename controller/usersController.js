@@ -13,6 +13,7 @@ export const userProfile = async (req, res) => {
         u.email,
         u.status,
         u.banned_until,
+        u.deleted_at,
         u.trust_score,
         u.created_at AS registered_at,
 
@@ -86,12 +87,13 @@ export const userProfile = async (req, res) => {
         return res.json({ message: "User does not exist" });
     }
 
-    // Suspended members are hidden from everyone else
+    // Suspended and deleted members are hidden from everyone else
     const currentUserId = req.user?.id;
-    if (Number(currentUserId) !== Number(userId) && isBanActive(user)) {
+    if (Number(currentUserId) !== Number(userId) && (isBanActive(user) || user.deleted_at)) {
         return res.status(404).json({ message: "User does not exist" });
     }
     delete user.banned_until;
+    delete user.deleted_at;
 
     // Auto-generate compatibility in background when profile is viewed
     if (currentUserId && Number(currentUserId) !== Number(userId)) {

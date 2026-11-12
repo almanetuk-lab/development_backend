@@ -14,7 +14,7 @@
  */
 
 import { pool } from "../config/db.js";
-import { notBannedSql } from "../utils/banRules.js";
+import { notUnavailableSql } from "../utils/banRules.js";
 import { generateContentWithFallback } from "../config/geminiConfig.js";
 import dotenv from "dotenv";
 dotenv.config();
@@ -226,6 +226,8 @@ export const detectActiveGhostingAlert = async (userId) => {
       `SELECT DISTINCT ON (m.sender_id)
          m.sender_id      AS partner_id,
          m.created_at     AS last_message_at,
+         -- Text, not a JS Date: Date drops microseconds and would never match again.
+         m.created_at::text AS message_at,
          p.first_name,
          p.last_name,
          hs.id            AS session_id
@@ -237,7 +239,15 @@ export const detectActiveGhostingAlert = async (userId) => {
        WHERE m.receiver_id = $1
          AND m.created_at < $2
          -- Not replying to a suspended member isn't ghosting (they can't receive replies)
-         AND ${notBannedSql("m.sender_id")}
+         AND ${notUnavailableSql("m.sender_id")}
+         AND NOT EXISTS (
+           -- User already answered or dismissed the alert for this message (or a later one)
+           SELECT 1 FROM ghosting_alerts ga
+           WHERE ga.user_id = $1
+             AND ga.partner_id = m.sender_id
+             AND ga.resolved_at IS NOT NULL
+             AND ga.message_at >= m.created_at
+         )
          AND NOT EXISTS (
            -- User has replied after this message
            SELECT 1 FROM messages reply
@@ -258,11 +268,37 @@ export const detectActiveGhostingAlert = async (userId) => {
       partnerId: row.partner_id,
       partnerName: [row.first_name, row.last_name].filter(Boolean).join(" ") || "Your Match",
       lastMessageAt: row.last_message_at,
+      messageAt: row.message_at,
     };
   } catch (err) {
     console.warn("[Trust] detectActiveGhostingAlert failed:", err.message);
     return null;
   }
+};
+
+/**
+ * Marks the user's alert for (partner, message) as resolved so it stops
+ * showing. Creates the row if the penalty pass hasn't run yet.
+ *
+ * @param {number} userId
+ * @param {{ partnerId: number, messageAt: string }} alert
+ * @param {"responded"|"dismissed"} resolution
+ * @param {string|null} reason
+ * @returns {Promise<{ id: number, penalty_applied: boolean }|null>} null if it was already resolved.
+ */
+export const resolveGhostingAlert = async (userId, alert, resolution, reason = null) => {
+  const { rows } = await pool.query(
+    `INSERT INTO ghosting_alerts (user_id, partner_id, message_at, resolution, reason, resolved_at)
+     VALUES ($1, $2, $3::timestamp, $4, $5, NOW())
+     ON CONFLICT (user_id, partner_id, message_at) DO UPDATE
+       SET resolution = EXCLUDED.resolution,
+           reason = EXCLUDED.reason,
+           resolved_at = NOW()
+       WHERE ghosting_alerts.resolved_at IS NULL
+     RETURNING id, penalty_applied`,
+    [userId, alert.partnerId, alert.messageAt, resolution, reason]
+  );
+  return rows[0] || null;
 };
 
 // ─── Trust Status Computation ────────────────────────────────────────────────
@@ -344,32 +380,35 @@ export const computeTrustStatus = async (userId) => {
  * Automatically applies the ghosting penalty to a user and appends a
  * behavioural insight event into their Digital Twin's memory.
  *
- * Idempotent: if a ghosting penalty has already been recorded for the same
- * handshake session in trust_history, it will not double-penalise.
+ * Idempotent per alert: the first caller inserts the ghosting_alerts row for
+ * (user, partner, unanswered message) and applies the penalty; every later
+ * call (page refreshes, other tabs, concurrent requests) finds the row and
+ * does nothing.
  *
  * Called non-blocking from getTrustStatus when detectActiveGhostingAlert fires.
  *
  * @param {number} userId        - The user who ghosted.
  * @param {number} partnerId     - The partner they ghosted.
  * @param {number|null} sessionId - The handshake session ID (if available).
+ * @param {string} messageAt     - alert.messageAt from detectActiveGhostingAlert.
  */
-export const applyGhostingPenalty = async (userId, partnerId, sessionId = null) => {
+export const applyGhostingPenalty = async (userId, partnerId, sessionId = null, messageAt = null) => {
   try {
-    // ── Idempotency guard: skip if penalty already applied for this session ──
-    if (sessionId) {
-      const { rows: existing } = await pool.query(
-        `SELECT id FROM trust_history
-         WHERE user_id = $1
-           AND handshake_id = $2
-           AND points_change < 0
-           AND reason ILIKE 'Ghosting%'
-         LIMIT 1`,
-        [userId, sessionId]
-      );
-      if (existing.length > 0) {
-        console.log(`[Trust] Auto-ghosting penalty already applied for user ${userId}, session ${sessionId}. Skipping.`);
-        return;
-      }
+    if (!messageAt) {
+      console.warn(`[Trust] applyGhostingPenalty called without messageAt for user ${userId}. Skipping.`);
+      return;
+    }
+
+    // ── Idempotency guard: atomically claim this alert ───────────────────────
+    const { rows: claimed } = await pool.query(
+      `INSERT INTO ghosting_alerts (user_id, partner_id, message_at, penalty_applied)
+       VALUES ($1, $2, $3::timestamp, true)
+       ON CONFLICT (user_id, partner_id, message_at) DO NOTHING
+       RETURNING id`,
+      [userId, partnerId, messageAt]
+    );
+    if (claimed.length === 0) {
+      return; // already penalised (or resolved) for this alert
     }
 
     // ── 1. Apply trust penalty ───────────────────────────────────────────────

@@ -1,12 +1,12 @@
 import { pool } from "../config/db.js";
-import { notBannedSql } from "../utils/banRules.js";
+import { notUnavailableSql } from "../utils/banRules.js";
 import { generateHandshake, AiUnavailableError } from "../services/handshakeService.js";
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 import {
   computeTrustStatus,
-  adjustTrustScore,
   detectActiveGhostingAlert,
   applyGhostingPenalty,
+  resolveGhostingAlert,
 } from "../services/trustService.js";
 import { generateContentWithFallback } from "../config/geminiConfig.js";
 
@@ -154,7 +154,7 @@ export const initiateHandshake = async (req, res) => {
 
     // ── Guard: target user must exist ────────────────────────────────────────
     const userCheck = await pool.query(
-      `SELECT id FROM users WHERE id = $1 AND ${notBannedSql("users.id")} LIMIT 1`,
+      `SELECT id FROM users WHERE id = $1 AND ${notUnavailableSql("users.id")} LIMIT 1`,
       [targetId]
     );
     if (userCheck.rows.length === 0) {
@@ -265,7 +265,8 @@ export const getTrustStatus = async (req, res) => {
       applyGhostingPenalty(
         userId,
         ghostingAlert.partnerId,
-        ghostingAlert.sessionId
+        ghostingAlert.sessionId,
+        ghostingAlert.messageAt
       ).catch((err) =>
         console.warn("[Module 8] Auto-ghosting penalty failed (non-blocking):", err.message)
       );
@@ -281,14 +282,38 @@ export const getTrustStatus = async (req, res) => {
   }
 };
 
+// ─── Module 8: Ghosting Dismiss ───────────────────────────────────────────────
+
+/**
+ * POST /api/handshake/ghosting-dismiss
+ * The user closed the alert without picking a reason. Counts as ignoring it:
+ * the one-time penalty stands (applied if it somehow hasn't been yet) and the
+ * alert is marked resolved so it does not reappear on refresh.
+ */
+export const ghostingDismiss = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const alert = await detectActiveGhostingAlert(userId);
+    if (!alert) {
+      return res.status(200).json({ message: "No active ghosting alert", data: { alreadyResolved: true } });
+    }
+    await applyGhostingPenalty(userId, alert.partnerId, alert.sessionId, alert.messageAt);
+    await resolveGhostingAlert(userId, alert, "dismissed");
+    return res.status(200).json({ message: "Ghosting alert dismissed", data: { dismissed: true } });
+  } catch (error) {
+    console.error("❌ Error in ghostingDismiss:", error);
+    return res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
 // ─── Module 8: Ghosting Respond ───────────────────────────────────────────────
 
-const PREDEFINED_REASONS = ["Busy with Work", "Wrong Timing", "Not Interested", "Already Talking to Someone"];
-const GHOSTING_PENALTY = parseInt(process.env.GHOSTING_PENALTY_POINTS) || 20;
+// "Already Talking" is the label the popup sends; the longer form is kept for older clients.
+const PREDEFINED_REASONS = ["Busy with Work", "Wrong Timing", "Not Interested", "Already Talking", "Already Talking to Someone"];
 
 /**
  * POST /api/handshake/ghosting-respond
- * Body: { sessionId, reason, customReason? }
+ * Body: { reason, customReason? }  (the alert is resolved server-side)
  *
  * - Applies ghosting penalty to the user.
  * - For predefined reasons: appends a structured event to twin_data.memory.events[] (no Gemini).
@@ -301,14 +326,30 @@ const GHOSTING_PENALTY = parseInt(process.env.GHOSTING_PENALTY_POINTS) || 20;
 export const ghostingRespond = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { sessionId, reason, customReason } = req.body;
+    const { reason, customReason } = req.body;
 
     if (!reason) {
       return res.status(400).json({ message: "Reason is required" });
     }
 
-    // 1. Apply ghosting penalty
-    await adjustTrustScore(userId, -GHOSTING_PENALTY, `Ghosting: ${reason}`, sessionId || null);
+    // 1. Resolve the alert the server currently sees (client-sent IDs are not trusted).
+    //    The penalty is applied at most once per alert (normally already done by
+    //    trust-status); responding no longer deducts a second time.
+    const alert = await detectActiveGhostingAlert(userId);
+    if (!alert) {
+      return res.status(200).json({ message: "No active ghosting alert", data: { reason, alreadyResolved: true } });
+    }
+    await applyGhostingPenalty(userId, alert.partnerId, alert.sessionId, alert.messageAt);
+    const resolved = await resolveGhostingAlert(
+      userId,
+      alert,
+      "responded",
+      reason === "Other" ? (customReason?.trim() || reason) : reason
+    );
+    if (!resolved) {
+      // A parallel request (double click, second tab) already resolved it.
+      return res.status(200).json({ message: "Ghosting response already recorded", data: { reason, alreadyResolved: true } });
+    }
 
     // 2. Fetch Digital Twin (twin_data JSONB — the correct column)
     const twinResult = await pool.query(
