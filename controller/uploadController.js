@@ -1,5 +1,6 @@
 import { pool } from "../config/db.js";
 import { supabase, uploadToSupabase } from "../utils/supabaseUpload.js";
+import { refreshMatchEligibility } from "../services/profileCompletenessService.js";
 
 // ✅ Controller: Upload Image to Supabase
 export const uploadImage = async (req, res) => {
@@ -42,6 +43,11 @@ export const saveProfileImage = async (req, res) => {
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ message: "Profile not found" });
     }
+
+    // Photo can be a readiness rule (REQUIRE_PHOTO) — keep the flag in sync.
+    await refreshMatchEligibility(user_id).catch((e) =>
+      console.error("❌ refreshMatchEligibility after photo save:", e.message)
+    );
 
     // Step 2: Fetch full profile after update
     const fetchQuery = `
@@ -104,6 +110,9 @@ export const removeProfilePicture = async (req, res) => {
     await pool.query(
       "UPDATE profiles SET image_url = NULL WHERE user_id = $1 RETURNING *",
       [user_id]
+    );
+    await refreshMatchEligibility(user_id).catch((e) =>
+      console.error("❌ refreshMatchEligibility after photo removal:", e.message)
     );
 
     // Step 4️⃣ - Return success response

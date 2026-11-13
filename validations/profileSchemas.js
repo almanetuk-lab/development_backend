@@ -206,6 +206,10 @@ export const profileUpdateSchema = z.object({
   life_rhythms: z.any().nullish(),
   ways_i_spend_time: z.any().nullish(),
   prompts: z.any().nullish(),
+
+  // Sent only by Edit Profile's final "Save" button. When true, the save is rejected
+  // unless every must-have field is filled. Step auto-saves omit it.
+  final_submit: z.boolean().optional(),
 }).passthrough(); // Allow unknown fields through so we don't break existing FE payloads
 
 // ─── Location Update Schema ────────────────────────────────────────────────

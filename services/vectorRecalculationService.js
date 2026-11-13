@@ -35,6 +35,7 @@ import { extractProfessionalEntities } from "./entityRecognitionService.js";
 import { analyzeSentimentAndTone } from "./sentimentAuditService.js";
 import { isSentimentAuditEnabled } from "../config/sentimentConfig.js";
 import { generateSpiderGraphData } from "./spiderGraphService.js";
+import { evaluateProfileCompleteness } from "../utils/profileCompleteness.js";
 
 // ── Deduplication Guard ──────────────────────────────────────────────────────
 // Stores the user IDs that are currently mid-recalculation.
@@ -259,6 +260,13 @@ export const recalculateUserVector = async (
       prompts = profile.prompts || {};
     } else {
       console.log(`📥 [VectorRecalc] Step 1: Using inline profile data (skipping DB fetch)`);
+    }
+
+    // Readiness gate: no embedding for profiles that aren't complete yet.
+    const completeness = evaluateProfileCompleteness(profile, prompts);
+    if (!completeness.isReady) {
+      console.log(`⏭️  [VectorRecalc] SKIPPED — profile for user ${uid} is not ready (${completeness.percent}%).`);
+      return { success: false, skipped: true, error: "Profile not ready", stats };
     }
 
     // Build complete profile data object for all AI services

@@ -121,6 +121,15 @@ export const testConnection = async () => {
     `);
     console.log("🧬 profiles table psychological AI columns successfully verified.");
 
+    // Profile completeness gate: only ready profiles appear in AI suggestions.
+    // Kept in sync by services/profileCompletenessService.js; backfill with
+    // scripts/backfill_match_eligibility.js after first deploy.
+    await pool.query(`
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_match_eligible BOOLEAN NOT NULL DEFAULT false;
+      CREATE INDEX IF NOT EXISTS idx_profiles_match_eligible ON profiles (user_id) WHERE is_match_eligible = true;
+    `);
+    console.log("🧩 profiles.is_match_eligible column verified.");
+
     // Dynamic columns verification for plans allowed_features column
     console.log("💳 Verifying plans table allowed_features column...");
     await pool.query(`
