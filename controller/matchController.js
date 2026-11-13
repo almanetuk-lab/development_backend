@@ -1,5 +1,7 @@
 import { pool } from "../config/db.js";
 import { notUnavailableSql } from "../utils/banRules.js";
+import { matchEligibleSql, PROFILE_INCOMPLETE_CODE } from "../utils/profileCompleteness.js";
+import { refreshMatchEligibility } from "../services/profileCompletenessService.js";
 import { generateAICompatibility, extractIntentTags, enrichContextualMetadata, validateAndNormalize, validateAndNormalizeContextual } from "../services/geminiService.js";
 import { buildSemanticProfileText, generateEmbedding } from "../services/embeddingService.js";
 import { extractProfessionalEntities } from "../services/entityRecognitionService.js";
@@ -502,6 +504,18 @@ export const getSuggestions = async (req, res) => {
 
     const { intent_embedding } = userResult.rows[0];
 
+    // Readiness gate: an incomplete profile gets no AI suggestions until it's ready.
+    // Evaluated live (and synced to is_match_eligible) so it self-heals before a backfill.
+    const completeness = await refreshMatchEligibility(userId);
+    if (!completeness?.isReady) {
+      console.log(`ℹ️ SUGGESTIONS: profile not ready for user ${userId} (${completeness?.percent ?? 0}%)`);
+      return res.status(200).json({
+        suggestions: [],
+        profile_incomplete: true,
+        completeness,
+      });
+    }
+
     if (!intent_embedding) {
       console.log("ℹ️ SUGGESTIONS: No vector embedding exists for user:", userId);
       return res.status(200).json([]);
@@ -566,6 +580,7 @@ export const getSuggestions = async (req, res) => {
           AND intent_embedding IS NOT NULL
           AND (intent_embedding <=> $1) < 0.30
           AND ${notUnavailableSql("profiles.user_id")}
+          AND ${matchEligibleSql("profiles.user_id")}
       ORDER BY distance ASC
       LIMIT 50;
     `;
@@ -1099,6 +1114,16 @@ export const analyzeProfile = async (req, res) => {
     const profile = profileResult.rows[0];
     const aboutMe = profile.about_me || "";
 
+    // This rebuilds the embedding — only for ready profiles.
+    const completeness = await refreshMatchEligibility(userId);
+    if (!completeness?.isReady) {
+      return res.status(400).json({
+        code: PROFILE_INCOMPLETE_CODE,
+        message: "Complete your profile before running the analysis.",
+        completeness,
+      });
+    }
+
     if (!aboutMe || aboutMe.trim().length === 0) {
       return res.status(400).json({ message: "About Me section is empty. Cannot perform psychological analysis." });
     }
@@ -1294,7 +1319,7 @@ export const getCompatibilityStatus = async (req, res) => {
       pool.query(`
         SELECT COUNT(*) AS missing_embeddings
         FROM profiles
-        WHERE intent_embedding IS NULL AND is_submitted = true
+        WHERE intent_embedding IS NULL AND is_match_eligible = true
       `),
       pool.query(`
         SELECT user_a_id, user_b_id, overall_score, updated_at,
