@@ -206,6 +206,8 @@ export const sendVerificationCode = async (userId, email, purpose) => {
   }
 
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+  console.log("code"+ code);
+  
   // A new code replaces any unused older one
   await pool.query(
     `UPDATE account_verification_codes SET consumed_at = NOW()

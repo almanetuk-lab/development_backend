@@ -18,6 +18,11 @@ import { generateSpiderGraphData } from "../services/spiderGraphService.js";
 import { generateOrUpdateTwin } from "../services/digitalTwinService.js";
 import { safeParse } from "../validations/validate.js";
 import { profileUpdateSchema } from "../validations/profileSchemas.js";
+import {
+  evaluateProfileCompleteness,
+  PROFILE_INCOMPLETE_CODE,
+} from "../utils/profileCompleteness.js";
+import { refreshMatchEligibility } from "../services/profileCompletenessService.js";
 
 export const NORMALIZE_ENUMS = {
   gender: {
@@ -342,7 +347,10 @@ export const updateProfile = async (req, res) => {
 
     const userId = req.user.id;
     // Check if dob and age already exist in database for this user
-    const existingProfile = await pool.query("SELECT dob, age FROM profiles WHERE user_id = $1", [userId]);
+    const existingProfile = await pool.query(
+      "SELECT id, dob, age, about_me, image_url FROM profiles WHERE user_id = $1",
+      [userId]
+    );
     const hasExistingDob = existingProfile.rows.length > 0 && existingProfile.rows[0].dob;
 
     if (hasExistingDob && (!dob || age === undefined || age === null || age === "")) {
@@ -558,6 +566,57 @@ export const updateProfile = async (req, res) => {
       });
     }
 
+    // --- Profile completeness (readiness gate) ---
+    // Evaluate what the profile WILL look like after this save: about_me and
+    // image_url are COALESCEd in the UPDATE below, and prompts are upserted
+    // (never removed), so merge those with what's already stored.
+    const existing = existingProfile.rows[0] || {};
+    let mergedPrompts = {};
+    if (existing.id) {
+      const existingPrompts = await pool.query(
+        "SELECT question_key, answer FROM profile_prompts WHERE profile_id = $1",
+        [existing.id]
+      );
+      for (const r of existingPrompts.rows) mergedPrompts[r.question_key] = r.answer;
+    }
+    if (prompts && typeof prompts === "object") mergedPrompts = { ...mergedPrompts, ...prompts };
+
+    const incomingCompleteness = evaluateProfileCompleteness(
+      {
+        first_name: clean_first_name,
+        dob: dob || existing.dob,
+        age: age ?? existing.age,
+        gender: normalized_gender,
+        interested_in: normalized_interested_in,
+        city,
+        relationship_goal: normalized_relationship_goal,
+        about_me: about_me || existing.about_me,
+        image_url: imageUrl || existing.image_url,
+        relationship_values: normalized_relationship_values,
+        relationship_pace: normalized_relationship_pace,
+        children_preference: normalized_children_preference,
+        life_rhythms,
+        interests,
+        ways_i_spend_time,
+        religious_belief: normalized_religious_belief,
+        smoking: normalized_smoking,
+        drinking: normalized_drinking,
+      },
+      mergedPrompts
+    );
+
+    // Final "Save" in Edit Profile must have every must-have. Step auto-saves skip this.
+    if (req.body.final_submit === true && incomingCompleteness.mustHaves.missing.length > 0) {
+      const labels = incomingCompleteness.mustHaves.missing.map((m) => m.label);
+      return res.status(400).json({
+        code: PROFILE_INCOMPLETE_CODE,
+        error: `Please complete: ${labels.join(", ")}.`,
+        message: `Please complete: ${labels.join(", ")}.`,
+        missing: incomingCompleteness.mustHaves.missing,
+        completeness: incomingCompleteness,
+      });
+    }
+
     // --- DEEP LOGGING INITIATED ---
     console.log("==================================================");
     console.log("🛠️  PROFILE UPDATE PIPELINE INITIATED");
@@ -588,7 +647,13 @@ export const updateProfile = async (req, res) => {
       self_expression, career_decision_style, work_demand_response,
     });
 
-    if (hasData) {
+    if (hasData && !incomingCompleteness.isReady) {
+      // Not ready yet: don't spend Gemini calls building a weak embedding from a
+      // sparse profile. The pipeline runs on the save that makes the profile ready.
+      console.log(
+        `ℹ️ [ProfileUpdate] Profile not ready (${incomingCompleteness.percent}%) — AI tags and embeddings skipped.`
+      );
+    } else if (hasData) {
       // ── Point #9: Deduplication guard ────────────────────────────────────────
       // Prevents concurrent embedding regeneration for the same user.
       // If a recalculation is already running (e.g., rapid duplicate saves),
@@ -1024,10 +1089,19 @@ export const updateProfile = async (req, res) => {
 
     logAuditEvent(userId, "PROFILE_EDIT", { email, first_name, last_name }, req);
 
+    // Store the readiness flag from the saved row (source of truth for discovery).
+    let completeness = incomingCompleteness;
+    try {
+      completeness = (await refreshMatchEligibility(userId)) || incomingCompleteness;
+    } catch (eligErr) {
+      console.error("❌ Failed to refresh match eligibility:", eligErr.message);
+    }
+
     return res.status(200).json({
       message: "Profile and email updated successfully",
       user: userResult.rows[0],
-      profile: profileWithPrompts,
+      profile: { ...profileWithPrompts, completeness },
+      completeness,
       // prompts: savedPrompts, // Uncomment if you want to return saved prompts
     });
   } catch (error) {
@@ -1210,6 +1284,7 @@ export const getProfile = async (req, res) => {
       latitude: profile.latitude || null,
       longitude: profile.longitude || null,
       updated_at: profile.updated_at || null,
+      completeness: evaluateProfileCompleteness(profile, prompts),
     };
     console.log("my profile data:", combinedData);
     res.status(200).json({
