@@ -173,6 +173,8 @@ export const profileUpdateSchema = z.object({
   gender: optionalEnum("gender"),
   marital_status: optionalEnum("marital_status"),
   interested_in: optionalEnum("interested_in"),
+  // Gender preference filter switch; multipart bodies send it as a string
+  show_only_preferred_gender: z.union([z.boolean(), z.enum(["true", "false"])]).optional(),
   relationship_goal: optionalEnum("relationship_goal"),
   children_preference: optionalEnum("children_preference"),
   pets_preference: optionalEnum("pets_preference"),

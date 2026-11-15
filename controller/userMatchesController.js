@@ -1,5 +1,6 @@
  import { pool } from "../config/db.js";
 import { notUnavailableSql } from "../utils/banRules.js";
+import { genderFilterSql } from "../utils/genderPreference.js";
 
 /* ---------- Helpers ---------- */
 
@@ -66,35 +67,20 @@ export const getUserMatches = async (req, res) => {
         const userSkills = toArray(user.skills);
         const userLanguages = toArray(user.languages_spoken);
         const userLoveLanguages = toArray(user.love_language_affection);
-        const userPreferenceGender = toArray(user.preference_gender);
 
-        // 3️⃣ Fetch all other active profiles
+        // 3️⃣ Fetch all other active profiles, restricted to the preferred gender
+        //     when the user has the filter on (utils/genderPreference.js)
+        const genderFilter = genderFilterSql(user, "profiles", 2);
         const allUsersResult = await pool.query(
             `SELECT * FROM profiles
-             WHERE user_id != $1 AND is_active = true AND ${notUnavailableSql("profiles.user_id")}`,
-             [userId]
+             WHERE user_id != $1 AND is_active = true AND ${notUnavailableSql("profiles.user_id")}
+             ${genderFilter.sql}`,
+             [userId, ...genderFilter.params]
         );
 
-        let allUsers = allUsersResult.rows;
+        const allUsers = allUsersResult.rows;
 
-        // 4️⃣ Filter by mutual gender preference if set (case-insensitive, whitespace-safe)
-        if (userPreferenceGender.length) {
-            const normalizedPrefGenders = userPreferenceGender
-                .map(g => String(g).trim().toLowerCase());
-            allUsers = allUsers.filter(u =>
-                u.gender && normalizedPrefGenders.includes(String(u.gender).trim().toLowerCase())
-            );
-        }
-
-        if (user.gender) {
-            const userGenderNorm = String(user.gender).trim().toLowerCase();
-            allUsers = allUsers.filter(u => {
-                const uPrefGenders = toArray(u.preference_gender).map(g => String(g).trim().toLowerCase());
-                return uPrefGenders.length === 0 || uPrefGenders.includes(userGenderNorm);
-            });
-        }
-
-        // 5️⃣ Calculate match scores
+        // 4️⃣ Calculate match scores
         const matches = allUsers.map((u) => {
             const uInterests = toArray(u.interests);
             const uHobbies = toArray(u.hobbies);
@@ -133,7 +119,6 @@ export const getUserMatches = async (req, res) => {
 
             // Personal Details
             if (isStringMatch(user.marital_status, u.marital_status)) score += 2;
-            if (userPreferenceGender.length && u.gender && userPreferenceGender.map(g => String(g).trim().toLowerCase()).includes(String(u.gender).trim().toLowerCase())) score += 2;
             if (isStringMatch(user.children_preference, u.children_preference)) score += 2;
             if (user.age && u.age) {
                 const ageDiff = Math.abs(Number(user.age) - Number(u.age));
