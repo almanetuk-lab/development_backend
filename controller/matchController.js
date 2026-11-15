@@ -1,5 +1,6 @@
 import { pool } from "../config/db.js";
 import { notUnavailableSql } from "../utils/banRules.js";
+import { genderFilterSql } from "../utils/genderPreference.js";
 import { matchEligibleSql, PROFILE_INCOMPLETE_CODE } from "../utils/profileCompleteness.js";
 import { refreshMatchEligibility } from "../services/profileCompletenessService.js";
 import { generateAICompatibility, extractIntentTags, enrichContextualMetadata, validateAndNormalize, validateAndNormalizeContextual } from "../services/geminiService.js";
@@ -162,7 +163,9 @@ const calculateLocalCompatibilityScores = (profileA, profileB) => {
     ["relationship_goal", 1.0],
     ["relationship_pace", 0.8],
     ["relationship_intent", 1.0],  // from intent_tags
-    ["interested_in", 0.9],
+    // interested_in is intentionally absent: comparing two users' preferences for
+    // equality says nothing about fit. Gender preference is applied as a filter
+    // (utils/genderPreference.js) instead.
     ["children_preference", 0.7],
     ["approach_to_physical_closeness", 0.6],
     ["preference_of_closeness", 0.6],
@@ -491,8 +494,8 @@ export const getSuggestions = async (req, res) => {
 
     // 1. Fetch current user's vector
     const userQuery = `
-      SELECT intent_embedding, username 
-      FROM profiles 
+      SELECT intent_embedding, username, interested_in, show_only_preferred_gender
+      FROM profiles
       WHERE user_id = $1;
     `;
     const userResult = await pool.query(userQuery, [userId]);
@@ -570,6 +573,9 @@ export const getSuggestions = async (req, res) => {
 
     // pgvector cosine similarity search (primary and only vector search)
     console.log(`🐘 [pgvector] Executing cosine similarity search for user ${userId}...`);
+    // $1 = vector, $2 = userId, $3 = preferred gender (only when the filter applies)
+    const genderFilter = genderFilterSql(userResult.rows[0], "profiles", 3);
+    console.log(`🎯 Gender filter: ${genderFilter.gender ?? "off"}`);
     const matchQuery = `
       SELECT
           *,
@@ -581,10 +587,11 @@ export const getSuggestions = async (req, res) => {
           AND (intent_embedding <=> $1) < 0.30
           AND ${notUnavailableSql("profiles.user_id")}
           AND ${matchEligibleSql("profiles.user_id")}
+          ${genderFilter.sql}
       ORDER BY distance ASC
       LIMIT 50;
     `;
-    const matchResult = await pool.query(matchQuery, [searchVector, userId]);
+    const matchResult = await pool.query(matchQuery, [searchVector, userId, ...genderFilter.params]);
     matches = matchResult.rows;
     console.log(`🐘 [pgvector] Found ${matches.length} similar profiles.`);
 

@@ -343,7 +343,15 @@ export const updateProfile = async (req, res) => {
       about_me,
       latitude,
       longitude,
+      show_only_preferred_gender,
     } = req.body;
+
+    // Multipart bodies deliver booleans as strings. undefined → keep stored value
+    // (COALESCE in the UPDATE) so a client that omits the field never resets it.
+    const parsedShowOnlyPreferredGender =
+      show_only_preferred_gender === true || show_only_preferred_gender === "true" ? true
+      : show_only_preferred_gender === false || show_only_preferred_gender === "false" ? false
+      : undefined;
 
     const userId = req.user.id;
     // Check if dob and age already exist in database for this user
@@ -901,6 +909,7 @@ export const updateProfile = async (req, res) => {
         normalized_entities = COALESCE($59::jsonb, normalized_entities),
         sentiment_audit     = COALESCE($60::jsonb, sentiment_audit),
         spider_graph_data   = COALESCE($61::jsonb, spider_graph_data),
+        show_only_preferred_gender = COALESCE($62::boolean, show_only_preferred_gender),
         updated_at = NOW(),
         is_submitted = true,
         intent_embedding = COALESCE($56::vector, intent_embedding),
@@ -971,6 +980,7 @@ export const updateProfile = async (req, res) => {
       normalized_entities ? JSON.stringify(normalized_entities) : null, // $59
       sentiment_audit ? JSON.stringify(sentiment_audit) : null, // $60 — Point #9
       spider_graph_data ? JSON.stringify(spider_graph_data) : null, // $61 — Point #10
+      parsedShowOnlyPreferredGender ?? null, // $62 — gender preference filter (null keeps current)
     ];
     console.log("=========================================");
     console.log("🤖 PROFILE UPDATE PIPELINE PIPELINE LOGS");
@@ -1154,6 +1164,7 @@ export const getProfile = async (req, res) => {
         position,
         professional_identity,
         interested_in,
+        show_only_preferred_gender,
         relationship_goal,
         children_preference,
         education_institution_name,
@@ -1247,6 +1258,7 @@ export const getProfile = async (req, res) => {
       position: profile.position || null,
       professional_identity: profile.professional_identity || null,
       interested_in: profile.interested_in || null,
+      show_only_preferred_gender: profile.show_only_preferred_gender !== false,
       relationship_goal: profile.relationship_goal || null,
       children_preference: profile.children_preference || null,
       education_institution_name: profile.education_institution_name || null,

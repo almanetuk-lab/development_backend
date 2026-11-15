@@ -130,6 +130,13 @@ export const testConnection = async () => {
     `);
     console.log("🧩 profiles.is_match_eligible column verified.");
 
+    // Gender preference filter: when true, match lists only show candidates whose
+    // gender matches the viewer's interested_in (see utils/genderPreference.js).
+    await pool.query(`
+      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS show_only_preferred_gender BOOLEAN NOT NULL DEFAULT true;
+    `);
+    console.log("🎯 profiles.show_only_preferred_gender column verified.");
+
     // Dynamic columns verification for plans allowed_features column
     console.log("💳 Verifying plans table allowed_features column...");
     await pool.query(`
