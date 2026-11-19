@@ -169,6 +169,14 @@ export const buildTemporarySemanticText = (priorities = [], rawQuery = "", emoti
     long_term_stability:    "I am looking for long-term stability, commitment, future planning, relationship security, and consistent partnership",
   };
 
+  // The user's own words lead: the pillar sentences are identical for every
+  // user, so placing them first let them dominate the embedding and made
+  // different queries produce near-identical vectors.
+  const query = typeof rawQuery === "string" ? rawQuery.trim() : "";
+  if (query) {
+    parts.push(query.slice(0, MAX_QUERY_LENGTH));
+  }
+
   for (const prio of priorities) {
     if (semanticMap[prio]) {
       parts.push(semanticMap[prio]);
@@ -179,12 +187,60 @@ export const buildTemporarySemanticText = (priorities = [], rawQuery = "", emoti
     parts.push(`Current emotional state: ${emotionalState.trim()}`);
   }
 
-  if (rawQuery && rawQuery.trim()) {
-    parts.push(`Personal note: ${rawQuery.trim()}`);
-  }
-
   return parts.join(". ");
 };
+
+// ── Free-text query limits ──────────────────────────────────
+export const MIN_QUERY_LENGTH = 3;
+export const MAX_QUERY_LENGTH = 200;
+
+/**
+ * Validate a refinement request. A session is valid with pillars, with a
+ * free-text query of at least MIN_QUERY_LENGTH characters, or with both.
+ *
+ * @returns {{ ok: true, priorities: string[], rawQuery: string } | { ok: false, error: string }}
+ */
+export const validateRefinementInput = (selectedPriorities, rawQuery) => {
+  const validIds = PRIORITY_OPTIONS.map((p) => p.id);
+  const priorities = (Array.isArray(selectedPriorities) ? selectedPriorities : [])
+    .filter((p) => validIds.includes(p));
+  const uniquePriorities = [...new Set(priorities)].slice(0, 3);
+  const query = (typeof rawQuery === "string" ? rawQuery.trim() : "").slice(0, MAX_QUERY_LENGTH);
+
+  if (uniquePriorities.length === 0 && query.length < MIN_QUERY_LENGTH) {
+    return {
+      ok: false,
+      error: `Select a pillar or describe what you're looking for (at least ${MIN_QUERY_LENGTH} characters).`,
+    };
+  }
+
+  return { ok: true, priorities: uniquePriorities, rawQuery: query };
+};
+
+/**
+ * Share of the user's permanent profile vector in the blended search vector
+ * (the rest comes from the session embedding). The more the session says in
+ * the user's own words, the more it is allowed to steer the search.
+ */
+export const BLEND_RATIOS = {
+  TEXT_ONLY: 0.30,
+  TEXT_AND_PILLARS: 0.45,
+  PILLARS_ONLY: 0.60,
+};
+
+export const getBlendRatio = ({ hasQuery, hasPriorities }) => {
+  if (hasQuery && !hasPriorities) return BLEND_RATIOS.TEXT_ONLY;
+  if (hasQuery && hasPriorities) return BLEND_RATIOS.TEXT_AND_PILLARS;
+  return BLEND_RATIOS.PILLARS_ONLY;
+};
+
+/**
+ * Maximum cosine distance for pgvector candidates. The default list compares
+ * profile to profile; a refined search vector leans toward a short query and
+ * sits further from every profile, so the strict cutoff returned nothing.
+ */
+export const MAX_DISTANCE_DEFAULT = 0.30;
+export const MAX_DISTANCE_REFINED = 0.45;
 
 /**
  * Blend two 768-dimensional embedding vectors.

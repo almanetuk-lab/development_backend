@@ -136,7 +136,13 @@ export const buildSemanticProfileText = (profileOrProfession, aboutMeOrIntentTag
 /**
  * Generates a 768-dimensional vector embedding for a given text using Gemini text-embedding.
  */
-export const generateEmbedding = async (text) => {
+/**
+ * @param {string} text
+ * @param {object} [options]
+ * @param {string} [options.taskType] - Gemini task type, e.g. "RETRIEVAL_QUERY" for a
+ *   short search phrase. Omitted for profile embeddings so stored vectors stay comparable.
+ */
+export const generateEmbedding = async (text, { taskType } = {}) => {
   if (!text || text.trim().length === 0) {
     console.warn("⚠️ generateEmbedding: empty text provided, returning null.");
     return null;
@@ -150,6 +156,7 @@ export const generateEmbedding = async (text) => {
     const result = await model.embedContent({
       content: { parts: [{ text }] },
       outputDimensionality: EMBEDDING_DIMENSIONS,
+      ...(taskType ? { taskType } : {}),
     });
     const embedding = result.embedding.values;
 
