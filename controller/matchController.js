@@ -22,6 +22,10 @@ import {
   rescoreSuggestions,
   PRIORITY_OPTIONS,
   SESSION_TTL_MS,
+  validateRefinementInput,
+  getBlendRatio,
+  MAX_DISTANCE_DEFAULT,
+  MAX_DISTANCE_REFINED,
 } from "../services/queryRefinementService.js";
 
 // ============================================================
@@ -531,6 +535,7 @@ export const getSuggestions = async (req, res) => {
     let activeSession = null;
     let searchVector = intent_embedding;
     let adaptiveWeights = null;
+    let maxDistance = MAX_DISTANCE_DEFAULT;
 
     try {
       const sessionResult = await pool.query(
@@ -551,8 +556,17 @@ export const getSuggestions = async (req, res) => {
           if (typeof intent_embedding === "string") {
             permVector = intent_embedding.replace(/[\[\]]/g, "").split(",").map(Number);
           }
-          searchVector = `[${blendEmbeddings(permVector, tempEmb, 0.60).join(",")}]`;
-          console.log("🔀 Using BLENDED vector for suggestions search");
+          // Sessions created before blend_ratio was stored fall back to the pillar-only ratio.
+          const storedRatio = Number(activeSession.generated_context?.blend_ratio);
+          const blendRatio = Number.isFinite(storedRatio) && storedRatio >= 0 && storedRatio <= 1
+            ? storedRatio
+            : getBlendRatio({
+                hasQuery: Boolean(activeSession.raw_query?.trim()),
+                hasPriorities: (activeSession.selected_priorities || []).length > 0,
+              });
+          searchVector = `[${blendEmbeddings(permVector, tempEmb, blendRatio).join(",")}]`;
+          maxDistance = MAX_DISTANCE_REFINED;
+          console.log(`🔀 Using BLENDED vector for suggestions search (profile ratio ${blendRatio}, max distance ${maxDistance})`);
         }
 
         // Load adaptive weights
@@ -573,8 +587,8 @@ export const getSuggestions = async (req, res) => {
 
     // pgvector cosine similarity search (primary and only vector search)
     console.log(`🐘 [pgvector] Executing cosine similarity search for user ${userId}...`);
-    // $1 = vector, $2 = userId, $3 = preferred gender (only when the filter applies)
-    const genderFilter = genderFilterSql(userResult.rows[0], "profiles", 3);
+    // $1 = vector, $2 = userId, $3 = max cosine distance, $4 = preferred gender (only when the filter applies)
+    const genderFilter = genderFilterSql(userResult.rows[0], "profiles", 4);
     console.log(`🎯 Gender filter: ${genderFilter.gender ?? "off"}`);
     const matchQuery = `
       SELECT
@@ -584,14 +598,14 @@ export const getSuggestions = async (req, res) => {
       WHERE
           user_id != $2
           AND intent_embedding IS NOT NULL
-          AND (intent_embedding <=> $1) < 0.30
+          AND (intent_embedding <=> $1) < $3::float8
           AND ${notUnavailableSql("profiles.user_id")}
           AND ${matchEligibleSql("profiles.user_id")}
           ${genderFilter.sql}
       ORDER BY distance ASC
       LIMIT 50;
     `;
-    const matchResult = await pool.query(matchQuery, [searchVector, userId, ...genderFilter.params]);
+    const matchResult = await pool.query(matchQuery, [searchVector, userId, maxDistance, ...genderFilter.params]);
     matches = matchResult.rows;
     console.log(`🐘 [pgvector] Found ${matches.length} similar profiles.`);
 
@@ -839,6 +853,7 @@ export const getSuggestions = async (req, res) => {
         is_refined: true,
         session_id: activeSession.id,
         selected_priorities: activeSession.selected_priorities,
+        raw_query: activeSession.raw_query || null,
         expires_at: activeSession.expires_at,
       };
       console.log(`✅ Re-scored ${finalData.length} suggestions with adaptive weights`);
@@ -1384,32 +1399,44 @@ export const setRefinedQuerySession = async (req, res) => {
 
     console.log(`\n🔮 ═══════════════════════════════════════════`);
     console.log(`🔮 SET REFINEMENT SESSION for user ${userId}`);
-    console.log(`   priorities: ${selected_priorities.join(", ")}`);
-
-    // Validate priorities
-    const validIds = PRIORITY_OPTIONS.map(p => p.id);
-    const cleanPriorities = selected_priorities.filter(p => validIds.includes(p)).slice(0, 3);
-
-    if (cleanPriorities.length === 0) {
-      return res.status(400).json({ message: "Please select at least 1 valid priority." });
+    // A session needs pillars, a free-text query, or both.
+    const validation = validateRefinementInput(selected_priorities, raw_query);
+    if (!validation.ok) {
+      return res.status(400).json({ message: validation.error });
     }
+    const { priorities: cleanPriorities, rawQuery } = validation;
+    const hasQuery = rawQuery.length > 0;
+    console.log(`   priorities: ${cleanPriorities.join(", ") || "(none)"} | query: ${hasQuery ? `"${rawQuery}"` : "(none)"}`);
 
-    // 1. Compute adaptive weights
+    // 1. Compute adaptive weights (base weights when no pillars are selected)
     const temporaryWeights = getAdaptiveWeights(cleanPriorities);
     console.log("   adaptive weights:", temporaryWeights);
 
     // 2. Build temporary semantic text
-    const semanticText = buildTemporarySemanticText(cleanPriorities, raw_query, emotional_state);
+    const semanticText = buildTemporarySemanticText(cleanPriorities, rawQuery, emotional_state);
     console.log("   semantic text length:", semanticText.length);
 
-    // 3. Generate temporary embedding via Gemini
+    // 3. Generate temporary embedding via Gemini (returns null on failure)
+    const queryTaskType = process.env.GEMINI_QUERY_TASK_TYPE?.trim() || undefined;
     let temporaryEmbedding = null;
     try {
-      temporaryEmbedding = await generateEmbedding(semanticText);
-      console.log("   ✅ temporary embedding generated, dim:", temporaryEmbedding?.length);
+      temporaryEmbedding = await generateEmbedding(semanticText, { taskType: queryTaskType });
     } catch (embErr) {
-      console.warn("   ⚠️ temp embedding generation failed (non-fatal):", embErr.message);
+      console.warn("   ⚠️ temp embedding generation threw:", embErr.message);
     }
+    const embeddingApplied = Array.isArray(temporaryEmbedding) && temporaryEmbedding.length > 0;
+    console.log(`   ${embeddingApplied ? "✅" : "⚠️"} temporary embedding ${embeddingApplied ? `generated, dim: ${temporaryEmbedding.length}` : "unavailable"}`);
+
+    // A text-only search is nothing but the embedding — saving it without one
+    // would silently return the unchanged list.
+    if (!embeddingApplied && cleanPriorities.length === 0) {
+      return res.status(502).json({
+        code: "SEARCH_EMBEDDING_UNAVAILABLE",
+        message: "Search is temporarily unavailable. Please try again in a moment.",
+      });
+    }
+
+    const blendRatio = getBlendRatio({ hasQuery, hasPriorities: cleanPriorities.length > 0 });
 
     // 4. Expire old sessions for this user
     await pool.query(
@@ -1426,12 +1453,14 @@ export const setRefinedQuerySession = async (req, res) => {
        RETURNING id, created_at, expires_at`,
       [
         userId,
-        raw_query || null,
+        rawQuery || null,
         cleanPriorities,
         emotional_state || null,
         JSON.stringify({
           semantic_text: semanticText,
-          temporary_embedding: temporaryEmbedding,
+          temporary_embedding: embeddingApplied ? temporaryEmbedding : null,
+          blend_ratio: blendRatio,
+          task_type: queryTaskType || null,
         }),
         JSON.stringify(temporaryWeights),
         expiresAt,
@@ -1443,9 +1472,11 @@ export const setRefinedQuerySession = async (req, res) => {
 
     return res.status(201).json({
       message: "Refinement session created. Your suggestions will be dynamically adjusted.",
+      embedding_applied: embeddingApplied,
       session: {
         id: session.id,
         selected_priorities: cleanPriorities,
+        raw_query: rawQuery || null,
         temporary_weights: temporaryWeights,
         created_at: session.created_at,
         expires_at: session.expires_at,
